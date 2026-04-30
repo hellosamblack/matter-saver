@@ -87,7 +87,7 @@ class MatterSaverTopologyCard extends HTMLElement {
     const state = this._hass.states[this._entityId];
     if (!state) return;
 
-    const devices = state.attributes.devices || [];
+    const devices = this._getDevices(state);
     const routers = devices.filter(d => ["router", "leader", "reed"].includes(d.thread_role));
     const endDevices = devices.filter(d => ["sed", "end_device"].includes(d.thread_role));
 
@@ -197,6 +197,44 @@ class MatterSaverTopologyCard extends HTMLElement {
     const div = document.createElement("div");
     div.textContent = str || "";
     return div.innerHTML;
+  }
+
+  _getDevices(state) {
+    const devices = (state.attributes && state.attributes.devices) || [];
+    if (!Array.isArray(devices)) return [];
+    return devices.map((device) => this._normalizeDevice(device));
+  }
+
+  _normalizeDevice(device) {
+    if (!device || typeof device !== "object") return {};
+    if ("node_id" in device || "name" in device) return device;
+
+    return {
+      node_id: device.i,
+      name: device.n || `Node ${device.i}`,
+      area: device.a || "",
+      product: device.p || "",
+      status: device.v === false ? "offline" : "online",
+      thread_role: this._normalizeRole(device.r),
+      neighbors: device.k ?? 0,
+      children: device.c ?? 0,
+      parent_node_id: device.pi ?? null,
+      battery: device.b,
+    };
+  }
+
+  _normalizeRole(role) {
+    const roles = {
+      l: "leader",
+      r: "router",
+      re: "reed",
+      e: "end_device",
+      s: "sed",
+      ua: "unassigned",
+      us: "unspecified",
+      u: "unknown",
+    };
+    return roles[role] || role || "unknown";
   }
 
   getCardSize() { return 8; }
