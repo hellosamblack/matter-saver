@@ -81,7 +81,7 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
     if node.get("neighbors"):
         encoded["k"] = node["neighbors"]
     if node.get("children"):
-        encoded["c"] = node["children"]
+        encoded["ch"] = node["children"]
     if node.get("errors"):
         encoded["e"] = node["errors"]
     if node.get("parent_node_id") is not None:
