@@ -39,17 +39,14 @@ Custom Component for Home Assistant to monitor and manage Matter/Thread devices.
 5. Restart Home Assistant
 6. Go to **Settings → Integrations → Add Integration → Matter Saver**
 7. Enter your Matter Server WebSocket URL (default: `ws://core-matter-server:5580/ws`)
+8. The Lovelace cards are loaded automatically after the integration is set up
 
 ### Manual
 
 1. Copy `custom_components/matter_saver/` to your `/config/custom_components/` directory
-2. Copy `www/matter-saver-card.js`, `www/matter-saver-log-card.js`, and `www/matter-saver-topology-card.js` to your `/config/www/` directory
-3. Add the cards as dashboard resources (type: module):
-   - `/local/matter-saver-card.js`
-   - `/local/matter-saver-log-card.js`
-   - `/local/matter-saver-topology-card.js`
-4. Restart Home Assistant
-5. Add the integration via UI
+2. Restart Home Assistant
+3. Add the integration via UI
+4. The Lovelace cards are loaded automatically after the integration is set up
 
 ## Requirements
 
@@ -70,11 +67,12 @@ Custom Component for Home Assistant to monitor and manage Matter/Thread devices.
 
 ## Custom Cards
 
-Three custom Lovelace cards are included:
+Four custom Lovelace cards are included:
 
 - **`matter-saver-card`** - Main device table with sorting, grouping, search, action popup, and route popup
 - **`matter-saver-log-card`** - Activity log with filtering and relative timestamps
 - **`matter-saver-topology-card`** - Thread mesh topology tree
+- **`matter-saver-mesh-card`** - Interactive Thread mesh network visualization
 
 ## Services
 

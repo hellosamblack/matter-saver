@@ -4,11 +4,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import aiohttp
 import voluptuous as vol
 
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
@@ -27,6 +30,13 @@ from datetime import datetime, timedelta, timezone
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor"]
+LOVELACE_CARD_FILENAMES = (
+    "matter-saver-card.js",
+    "matter-saver-log-card.js",
+    "matter-saver-topology-card.js",
+    "matter-saver-mesh-card.js",
+)
+LOVELACE_RESOURCE_KEY = "lovelace_resources_registered"
 
 type MatterSaverConfigEntry = ConfigEntry[MatterSaverCoordinator]
 
@@ -755,9 +765,41 @@ SERVICE_SCHEMA_NODE = vol.Schema({
 })
 
 
+async def _async_register_lovelace_resources(hass: HomeAssistant) -> None:
+    """Serve and preload the bundled Lovelace card modules."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if domain_data.get(LOVELACE_RESOURCE_KEY):
+        return
+
+    static_paths: list[StaticPathConfig] = []
+    resource_urls: list[str] = []
+    cards_path = Path(__file__).parent / "www"
+
+    for filename in LOVELACE_CARD_FILENAMES:
+        asset_path = cards_path / filename
+        if not asset_path.is_file():
+            _LOGGER.warning("Missing Lovelace card asset: %s", asset_path)
+            continue
+
+        url = f"/api/{DOMAIN}/{filename}"
+        static_paths.append(
+            StaticPathConfig(url, str(asset_path), cache_headers=False)
+        )
+        resource_urls.append(url)
+
+    if static_paths:
+        await hass.http.async_register_static_paths(static_paths)
+        for url in resource_urls:
+            add_extra_js_url(hass, url)
+
+    domain_data[LOVELACE_RESOURCE_KEY] = True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) -> bool:
     """Set up Matter Saver from a config entry."""
     url = entry.data.get(CONF_MATTER_URL, DEFAULT_MATTER_URL)
+
+    await _async_register_lovelace_resources(hass)
 
     coordinator = MatterSaverCoordinator(hass, url)
     await coordinator.async_load_log()
