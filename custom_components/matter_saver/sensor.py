@@ -206,6 +206,7 @@ class MatterOfflineSensor(MatterSaverBaseSensor):
     _attr_icon = "mdi:close-network"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "devices"
+    # Exclude high-cardinality device names from recorder history.
     _unrecorded_attributes = frozenset({"device_names"})
 
     def __init__(
