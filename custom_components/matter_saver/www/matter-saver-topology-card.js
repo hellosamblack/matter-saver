@@ -3,6 +3,7 @@ class MatterSaverTopologyCard extends HTMLElement {
     super();
     this._lastDataJson = "";
     this._initialized = false;
+    this._deviceDataError = "";
   }
 
   setConfig(config) {
@@ -94,6 +95,9 @@ class MatterSaverTopologyCard extends HTMLElement {
     // Stats
     const statsEl = this.querySelector("#mt-stats");
     if (statsEl) {
+      if (this._deviceDataError) {
+        statsEl.textContent = this._deviceDataError;
+      } else {
       const leaderCount = routers.filter(d => d.thread_role === "leader").length;
       const routerCount = routers.filter(d => d.thread_role === "router").length;
       const reedCount = routers.filter(d => d.thread_role === "reed").length;
@@ -104,6 +108,7 @@ class MatterSaverTopologyCard extends HTMLElement {
         <span><span class="mt-stat-value">${reedCount}</span> REED</span>
         <span><span class="mt-stat-value">${sedCount}</span> End Devices</span>
       `;
+      }
     }
 
     // Build parent_node_id -> children mapping
@@ -129,6 +134,10 @@ class MatterSaverTopologyCard extends HTMLElement {
 
     const contentEl = this.querySelector("#mt-content");
     if (!contentEl) return;
+    if (this._deviceDataError) {
+      contentEl.innerHTML = `<div class="mt-no-children">${this._esc(this._deviceDataError)}</div>`;
+      return;
+    }
 
     let html = "";
     for (const router of sortedRouters) {
@@ -200,8 +209,32 @@ class MatterSaverTopologyCard extends HTMLElement {
   }
 
   _getDevices(state) {
-    return window.MatterSaverDeviceData?.normalizeDevices(state)
-      || ((state.attributes && state.attributes.devices) || []);
+    const normalized = window.MatterSaverDeviceData?.normalizeDevices(state);
+    if (Array.isArray(normalized)) {
+      this._deviceDataError = "";
+      return normalized;
+    }
+
+    const devices = (state.attributes && state.attributes.devices) || [];
+    if (!Array.isArray(devices)) {
+      this._deviceDataError = "";
+      return [];
+    }
+
+    const hasCompactDevices = devices.some((device) => (
+      device
+      && typeof device === "object"
+      && !Array.isArray(device)
+      && Object.prototype.hasOwnProperty.call(device, "i")
+    ));
+    if (hasCompactDevices) {
+      this._deviceDataError = "Shared device decoder unavailable.";
+      console.warn("matter-saver-topology-card: compact device payload found but MatterSaverDeviceData.normalizeDevices is unavailable; returning no devices to avoid mis-rendering.");
+      return [];
+    }
+
+    this._deviceDataError = "";
+    return devices;
   }
 
   getCardSize() { return 8; }

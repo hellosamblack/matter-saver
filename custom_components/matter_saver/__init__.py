@@ -56,6 +56,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.url = url
         self._last_seen: dict[int, str] = {}  # node_id -> ISO timestamp
         self._previous_status: dict[int, bool] = {}  # node_id -> available
+        self._previous_problem: dict[int, str] = {}  # node_id -> error_comment
         self.activity_log: list[dict[str, Any]] = []
         self.max_log_entries = 200
         self._store = Store(hass, 1, f"{DOMAIN}_data")
@@ -176,6 +177,8 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             available = node["available"]
             name = node.get("device_name") or f"Node {nid}"
             prev = self._previous_status.get(nid)
+            problem = node.get("error_comment", "")
+            prev_problem = self._previous_problem.get(nid)
 
             if prev is not None and prev != available:
                 if available:
@@ -200,7 +203,14 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # Keep max 50 entries per node
                     self.offline_history[nid] = self.offline_history[nid][:50]
 
+            if prev_problem is not None and prev_problem != problem:
+                if problem and not prev_problem:
+                    self.add_log("warning", nid, name, f"problem detected: {problem}")
+                elif prev_problem and not problem:
+                    self.add_log("success", nid, name, "problem cleared")
+
             self._previous_status[nid] = available
+            self._previous_problem[nid] = problem
 
         # Build offline stats per node
         for node in data.get("nodes", []):

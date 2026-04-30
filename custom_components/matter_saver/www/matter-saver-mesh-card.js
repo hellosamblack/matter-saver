@@ -14,6 +14,7 @@ class MatterSaverMeshCard extends HTMLElement {
     this._isPanning = false;
     this._panStartX = 0;
     this._panStartY = 0;
+    this._deviceDataError = "";
   }
 
   setConfig(config) {
@@ -260,13 +261,41 @@ class MatterSaverMeshCard extends HTMLElement {
   }
 
   _getDevices(state) {
-    return window.MatterSaverDeviceData?.normalizeDevices(state)
-      || ((state.attributes && state.attributes.devices) || []);
+    const normalized = window.MatterSaverDeviceData?.normalizeDevices(state);
+    if (Array.isArray(normalized)) {
+      this._deviceDataError = "";
+      return normalized;
+    }
+
+    const devices = (state.attributes && state.attributes.devices) || [];
+    if (!Array.isArray(devices)) {
+      this._deviceDataError = "";
+      return [];
+    }
+
+    const hasCompactDevices = devices.some((device) => (
+      device
+      && typeof device === "object"
+      && !Array.isArray(device)
+      && Object.prototype.hasOwnProperty.call(device, "i")
+    ));
+    if (hasCompactDevices) {
+      this._deviceDataError = "Shared device decoder unavailable.";
+      console.warn("matter-saver-mesh-card: compact device payload found but MatterSaverDeviceData.normalizeDevices is unavailable; returning no devices to avoid mis-rendering.");
+      return [];
+    }
+
+    this._deviceDataError = "";
+    return devices;
   }
 
   _renderGraph() {
     const svg = this.querySelector("#mm-svg");
     if (!svg) return;
+    if (this._deviceDataError) {
+      svg.innerHTML = `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="currentColor">${this._deviceDataError}</text>`;
+      return;
+    }
 
     const roleColors = {
       "leader": "#ffb300", "router": "#4caf50", "reed": "#8bc34a",

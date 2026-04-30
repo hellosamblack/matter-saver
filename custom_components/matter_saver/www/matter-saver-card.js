@@ -7,6 +7,7 @@ class MatterSaverCard extends HTMLElement {
     this._lastDataJson = "";
     this._initialized = false;
     this._devices = [];
+    this._deviceDataError = "";
   }
 
   setConfig(config) {
@@ -523,7 +524,7 @@ class MatterSaverCard extends HTMLElement {
     const tbodyEl = this.querySelector("#ms-tbody");
     if (tbodyEl) {
       if (devices.length === 0) {
-        tbodyEl.innerHTML = `<tr class="ms-no-results"><td colspan="${CC}">No devices found</td></tr>`;
+        tbodyEl.innerHTML = `<tr class="ms-no-results"><td colspan="${CC}">${this._escHtml(this._deviceDataError || "No devices found")}</td></tr>`;
       } else {
         const sorted = this._sortDevices(devices);
         tbodyEl.innerHTML = this._groupDevices(sorted, CC);
@@ -538,8 +539,32 @@ class MatterSaverCard extends HTMLElement {
   }
 
   _getDevices(state) {
-    return window.MatterSaverDeviceData?.normalizeDevices(state)
-      || ((state.attributes && state.attributes.devices) || []);
+    const normalized = window.MatterSaverDeviceData?.normalizeDevices(state);
+    if (Array.isArray(normalized)) {
+      this._deviceDataError = "";
+      return normalized;
+    }
+
+    const devices = (state.attributes && state.attributes.devices) || [];
+    if (!Array.isArray(devices)) {
+      this._deviceDataError = "";
+      return [];
+    }
+
+    const hasCompactDevices = devices.some((device) => (
+      device
+      && typeof device === "object"
+      && !Array.isArray(device)
+      && Object.prototype.hasOwnProperty.call(device, "i")
+    ));
+    if (hasCompactDevices) {
+      this._deviceDataError = "Shared device decoder unavailable.";
+      console.warn("matter-saver-card: compact device payload found but MatterSaverDeviceData.normalizeDevices is unavailable; returning no devices to avoid mis-rendering.");
+      return [];
+    }
+
+    this._deviceDataError = "";
+    return devices;
   }
 
   _sortDevices(devices) {
