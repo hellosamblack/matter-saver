@@ -204,9 +204,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.offline_history[nid] = self.offline_history[nid][:50]
 
             if prev_problem is not None and prev_problem != problem:
-                if problem and not prev_problem:
+                if prev_problem == "" and problem != "":
                     self.add_log("warning", nid, name, f"problem detected: {problem}")
-                elif prev_problem and not problem:
+                elif prev_problem != "" and problem == "":
                     self.add_log("success", nid, name, "problem cleared")
 
             self._previous_status[nid] = available
