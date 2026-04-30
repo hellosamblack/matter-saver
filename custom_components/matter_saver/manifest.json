@@ -3,9 +3,10 @@
   "name": "Matter Saver",
   "codeowners": ["@cnc-lasercraft"],
   "config_flow": true,
-  "documentation": "https://github.com/cnc-lasercraft/matter-saver",
+  "dependencies": ["frontend"],
+  "documentation": "https://github.com/hellosamblack/matter-saver",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/cnc-lasercraft/matter-saver/issues",
+  "issue_tracker": "https://github.com/hellosamblack/matter-saver/issues",
   "requirements": ["aiohttp>=3.8.0"],
   "version": "0.1.0"
 }
