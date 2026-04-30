@@ -14,6 +14,7 @@ class MatterSaverMeshCard extends HTMLElement {
     this._isPanning = false;
     this._panStartX = 0;
     this._panStartY = 0;
+    this._deviceDataError = "";
   }
 
   setConfig(config) {
@@ -150,7 +151,7 @@ class MatterSaverMeshCard extends HTMLElement {
   _buildGraph() {
     const state = this._hass.states[this._entityId];
     if (!state) return;
-    const devices = state.attributes.devices || [];
+    const devices = this._getDevices(state);
 
     // Keep existing positions if available
     const oldPos = {};
@@ -259,9 +260,25 @@ class MatterSaverMeshCard extends HTMLElement {
     }
   }
 
+  _getDevices(state) {
+    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-mesh-card");
+    if (result) {
+      this._deviceDataError = result.error;
+      return result.devices;
+    }
+
+    this._deviceDataError = "Shared device decoder unavailable.";
+    console.warn("matter-saver-mesh-card: shared card utilities unavailable; returning no devices to avoid mis-rendering.");
+    return [];
+  }
+
   _renderGraph() {
     const svg = this.querySelector("#mm-svg");
     if (!svg) return;
+    if (this._deviceDataError) {
+      svg.innerHTML = `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="currentColor">${this._deviceDataError}</text>`;
+      return;
+    }
 
     const roleColors = {
       "leader": "#ffb300", "router": "#4caf50", "reed": "#8bc34a",

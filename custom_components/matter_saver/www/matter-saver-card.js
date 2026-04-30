@@ -7,6 +7,7 @@ class MatterSaverCard extends HTMLElement {
     this._lastDataJson = "";
     this._initialized = false;
     this._devices = [];
+    this._deviceDataError = "";
   }
 
   setConfig(config) {
@@ -475,7 +476,7 @@ class MatterSaverCard extends HTMLElement {
     const state = this._hass.states[this._entityId];
     if (!state) return;
 
-    let devices = state.attributes.devices || [];
+    let devices = this._getDevices(state);
     const online = state.attributes.online || 0;
     const offline = state.attributes.offline || 0;
     const CC = 14;
@@ -523,7 +524,7 @@ class MatterSaverCard extends HTMLElement {
     const tbodyEl = this.querySelector("#ms-tbody");
     if (tbodyEl) {
       if (devices.length === 0) {
-        tbodyEl.innerHTML = `<tr class="ms-no-results"><td colspan="${CC}">No devices found</td></tr>`;
+        tbodyEl.innerHTML = `<tr class="ms-no-results"><td colspan="${CC}">${this._escHtml(this._deviceDataError || "No devices found")}</td></tr>`;
       } else {
         const sorted = this._sortDevices(devices);
         tbodyEl.innerHTML = this._groupDevices(sorted, CC);
@@ -535,6 +536,18 @@ class MatterSaverCard extends HTMLElement {
     const sorted = this._sortField === field;
     const arrow = sorted ? (this._sortAsc ? " \u25B2" : " \u25BC") : "";
     return `<th data-field="${field}" class="${sorted ? "sorted" : ""}">${label}<span class="arrow">${arrow}</span></th>`;
+  }
+
+  _getDevices(state) {
+    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-card");
+    if (result) {
+      this._deviceDataError = result.error;
+      return result.devices;
+    }
+
+    this._deviceDataError = "Shared device decoder unavailable.";
+    console.warn("matter-saver-card: shared card utilities unavailable; returning no devices to avoid mis-rendering.");
+    return [];
   }
 
   _sortDevices(devices) {
