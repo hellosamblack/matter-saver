@@ -13,13 +13,22 @@ class MatterSaverCard extends HTMLElement {
   setConfig(config) {
     this.config = config;
     this._entityId = config.entity || "sensor.matter_saver_devices";
+    this._title = config.title || "Matter Devices";
+    this._sortField = config.sort_by || "status";
+    this._sortAsc = config.sort_ascending !== false;
+    this._filter = (config.filter || "").toLowerCase();
+    this._showSearch = config.show_search !== false;
+    this._showStats = config.show_stats !== false;
+    if (this._initialized && this._hass) {
+      this._fullRender();
+    }
   }
 
   set hass(hass) {
     this._hass = hass;
     const state = hass.states[this._entityId];
     const dataJson = state ? JSON.stringify(state.attributes) : "";
-    if (!this._initialized) {
+    if (!this._initialized || !this.querySelector("#ms-tbody")) {
       this._fullRender();
       this._initialized = true;
     } else if (dataJson !== this._lastDataJson) {
@@ -31,7 +40,7 @@ class MatterSaverCard extends HTMLElement {
   _fullRender() {
     const state = this._hass.states[this._entityId];
     if (!state) {
-      this.innerHTML = `<ha-card header="Matter Saver"><div class="card-content">Entity not found</div></ha-card>`;
+      this.innerHTML = `<ha-card header="${this._escHtml(this._title || "Matter Saver")}"><div class="card-content">${this._escHtml(this._t("entityNotFound"))}</div></ha-card>`;
       return;
     }
     this._lastDataJson = JSON.stringify(state.attributes);
@@ -161,12 +170,12 @@ class MatterSaverCard extends HTMLElement {
           .ms-route-signal .lqi { font-size: 0.8em; color: var(--secondary-text-color, #999); }
         </style>
         <div class="ms-header">
-          <span class="ms-title">Matter Devices</span>
+          <span class="ms-title">${this._escHtml(this._title)}</span>
           <div class="ms-stats" id="ms-stats"></div>
         </div>
-        <div class="ms-search-wrap">
-          <input type="text" class="ms-search" id="ms-search" placeholder="Filter devices..." />
-        </div>
+        ${this._showSearch ? `<div class="ms-search-wrap">
+          <input type="text" class="ms-search" id="ms-search" placeholder="${this._escHtml(this._t("filterDevicesPlaceholder"))}" value="${this._escHtml(this.config.filter || "")}" />
+        </div>` : ""}
         <div class="card-content" style="padding: 0 8px 16px; overflow-x: auto;">
           <table class="ms-table">
             <thead id="ms-thead"></thead>
@@ -203,10 +212,13 @@ class MatterSaverCard extends HTMLElement {
     });
 
     // Search
-    this.querySelector("#ms-search").addEventListener("input", (e) => {
-      this._filter = e.target.value.toLowerCase();
-      this._updateTable();
-    });
+    const searchInput = this.querySelector("#ms-search");
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        this._filter = e.target.value.toLowerCase();
+        this._updateTable();
+      });
+    }
 
     // Table click delegation
     this.querySelector("#ms-tbody").addEventListener("click", (e) => {
@@ -242,7 +254,7 @@ class MatterSaverCard extends HTMLElement {
     const routeEl = this.querySelector("#ms-route");
     const modal = this.querySelector("#ms-modal");
 
-    titleEl.textContent = `Route: ${device.name}`;
+    titleEl.textContent = this._t("routeTitle", { name: device.name });
 
     const roleIcons = {
       "sed": "\uD83D\uDD0B", "end_device": "\uD83D\uDD0C", "reed": "\uD83D\uDD00",
@@ -260,7 +272,9 @@ class MatterSaverCard extends HTMLElement {
       const hop = path[i];
       const icon = roleIcons[hop.role] || "\u2753";
       const color = roleColors[hop.role] || "#999";
-      const roleLabel = this._threadRoleLabel(hop.role === "ha" ? "" : hop.role);
+      const roleLabel = hop.role === "ha"
+        ? this._t("borderRouterGateway")
+        : this._threadRoleLabel(hop.role);
 
       // Signal quality
       let signalHtml = "";
@@ -273,8 +287,8 @@ class MatterSaverCard extends HTMLElement {
       html += `<div class="ms-route-hop">
         <div class="ms-route-icon" style="background:${color}22;color:${color}">${icon}</div>
         <div class="ms-route-info">
-          <div class="ms-route-name">${this._escHtml(hop.name || "Unknown")}</div>
-          <div class="ms-route-detail">${hop.node_id != null ? `Node ${hop.node_id} \u2022 ` : ""}${hop.role === "ha" ? "Border Router Gateway" : roleLabel}</div>
+          <div class="ms-route-name">${this._escHtml(hop.name || this._t("unknown"))}</div>
+          <div class="ms-route-detail">${hop.node_id != null ? `${this._t("node")} ${hop.node_id} \u2022 ` : ""}${roleLabel}</div>
         </div>
         ${signalHtml}
       </div>`;
@@ -308,26 +322,27 @@ class MatterSaverCard extends HTMLElement {
 
     // Device details table
     const rows = [
-      ["Node ID", device.node_id],
-      ["Product", device.product],
-      ["Area", device.area || "-"],
-      ["Status", device.status],
-      ["Thread", this._threadRoleLabel(device.thread_role)],
-      ["Parent", device.parent || "-"],
-      ["Power", device.power],
-      ["Battery", device.battery != null ? `${Math.round(device.battery)}%` : "-"],
-      ["Firmware", device.firmware || "-"],
-      ["Errors", device.errors ? device.errors.toLocaleString() : "0"],
+      [this._t("nodeId"), device.node_id],
+      [this._t("product"), device.product],
+      [this._t("area"), device.area || "-"],
+      [this._t("status"), this._statusLabel(device.status)],
+      [this._t("thread"), this._threadRoleLabel(device.thread_role)],
+      [this._t("parent"), device.parent || "-"],
+      [this._t("power"), this._powerLabel(device.power)],
+      [this._t("battery"), device.battery != null ? `${Math.round(device.battery)}%` : "-"],
+      [this._t("firmware"), device.firmware || "-"],
+      [this._t("errors"), device.errors ? device.errors.toLocaleString() : "0"],
     ];
-    if (device.error_comment) rows.push(["Diagnose", device.error_comment]);
+    const localizedComment = this._localizeIssueComment(device.error_comment, device.error_comment_codes);
+    if (localizedComment) rows.push([this._t("diagnostics"), localizedComment]);
 
     // Offline history stats
     if (device.offline_7d_count > 0 || device.offline_30d_count > 0) {
       const fmt = (min) => min < 60 ? `${min}m` : min < 1440 ? `${Math.round(min/60)}h` : `${(min/1440).toFixed(1)}d`;
       if (device.offline_7d_count > 0)
-        rows.push(["Offline 7d", `${device.offline_7d_count}x, total ${fmt(device.offline_7d_minutes)}`]);
+        rows.push([this._t("offline7d"), `${device.offline_7d_count}x, total ${fmt(device.offline_7d_minutes)}`]);
       if (device.offline_30d_count > 0)
-        rows.push(["Offline 30d", `${device.offline_30d_count}x, total ${fmt(device.offline_30d_minutes)}`]);
+        rows.push([this._t("offline30d"), `${device.offline_30d_count}x, total ${fmt(device.offline_30d_minutes)}`]);
     }
 
     // Get repair history for this node from activity log
@@ -336,31 +351,31 @@ class MatterSaverCard extends HTMLElement {
     const nodeHistory = allEntries.filter(e => e.node_id === nodeId);
 
     // Analyze what was already tried
-    const triedPing = nodeHistory.some(e => e.message && e.message.includes("Ping"));
-    const pingOk = nodeHistory.some(e => e.level === "success" && e.message && e.message.includes("Ping"));
-    const pingFail = nodeHistory.some(e => e.level === "error" && e.message && e.message.includes("Ping"));
-    const triedInterview = nodeHistory.some(e => e.message && e.message.includes("Interview"));
-    const interviewOk = nodeHistory.some(e => e.level === "success" && e.message && e.message.includes("Interview"));
-    const interviewFail = nodeHistory.some(e => e.level === "error" && e.message && e.message.includes("Interview"));
-    const triedReset = nodeHistory.some(e => e.message && e.message.includes("Reset"));
+    const triedPing = nodeHistory.some(e => this._entryMatchesAction(e, "ping"));
+    const pingOk = nodeHistory.some(e => e.level === "success" && this._entryMatchesAction(e, "ping"));
+    const pingFail = nodeHistory.some(e => e.level === "error" && this._entryMatchesAction(e, "ping"));
+    const triedInterview = nodeHistory.some(e => this._entryMatchesAction(e, "interview"));
+    const interviewOk = nodeHistory.some(e => e.level === "success" && this._entryMatchesAction(e, "interview"));
+    const interviewFail = nodeHistory.some(e => e.level === "error" && this._entryMatchesAction(e, "interview"));
+    const triedReset = nodeHistory.some(e => this._entryMatchesAction(e, "reset"));
 
     // Build smart suggestion
     let suggestion = "";
     if (device.status === "offline") {
       if (!triedPing) {
-        suggestion = `<div class="ms-suggestion">\uD83D\uDCA1 <strong>Empfehlung:</strong> Zuerst Ping versuchen um zu prüfen ob das Gerät auf Thread-Ebene erreichbar ist.</div>`;
+        suggestion = `<div class="ms-suggestion">${this._t("suggestionPingFirst")}</div>`;
       } else if (pingOk && !triedInterview) {
-        suggestion = `<div class="ms-suggestion">\uD83D\uDCA1 <strong>Empfehlung:</strong> Ping war erfolgreich - das Gerät ist auf Thread-Ebene erreichbar. Re-Interview versuchen um die Matter-Verbindung neu aufzubauen.</div>`;
+        suggestion = `<div class="ms-suggestion">${this._t("suggestionInterviewNext")}</div>`;
       } else if (pingOk && interviewFail) {
-        suggestion = `<div class="ms-suggestion warn">\u26A0\uFE0F <strong>Empfehlung:</strong> Ping OK aber Re-Interview gescheitert - die Matter-Application reagiert nicht.<br><br>1. Matter Server Addon neustarten: <button class="ms-action-btn" id="ms-restart-addon" style="background:#b71c1c;color:#fff;display:inline-flex;padding:6px 14px;font-size:0.85em;margin:4px 0">\u26A1 Matter Server Restart</button><br>2. Falls das nicht hilft: Gerät physisch vom Strom trennen (5 Sek) und wieder einstecken</div>`;
+        suggestion = `<div class="ms-suggestion warn">${this._t("suggestionRestartAddon")}</div>`;
       } else if (pingFail) {
-        suggestion = `<div class="ms-suggestion warn">\u26A0\uFE0F <strong>Empfehlung:</strong> Ping fehlgeschlagen - das Gerät ist nicht erreichbar. Mögliche Ursachen:<br>1. Kein Strom \u2192 Stecker/Sicherung prüfen<br>2. Ausserhalb Thread-Reichweite \u2192 näher an einen Router stellen<br>3. Hardware-Defekt</div>`;
+        suggestion = `<div class="ms-suggestion warn">${this._t("suggestionPingFailed")}</div>`;
       }
     } else if (device.errors > 10000) {
       if (!triedReset) {
-        suggestion = `<div class="ms-suggestion">\uD83D\uDCA1 <strong>Empfehlung:</strong> Hohe Error-Zähler. Reset Counters ausführen und beobachten ob die Fehler wiederkommen. Falls ja, Gerät umplatzieren.</div>`;
+        suggestion = `<div class="ms-suggestion">${this._t("suggestionResetCounters")}</div>`;
       } else {
-        suggestion = `<div class="ms-suggestion warn">\u26A0\uFE0F <strong>Empfehlung:</strong> Counter wurden bereits zurückgesetzt. Falls Fehler weiter steigen: Gerät steht vermutlich in einem Bereich mit starken Funkstörungen (WLAN, Mikrowelle). Umplatzieren oder Thread-Kanal prüfen.</div>`;
+        suggestion = `<div class="ms-suggestion warn">${this._t("suggestionMoveDevice")}</div>`;
       }
     }
 
@@ -369,14 +384,14 @@ class MatterSaverCard extends HTMLElement {
     if (nodeHistory.length > 0) {
       const histIcons = {"action": "\u26A1", "success": "\u2705", "error": "\u274C", "info": "\uD83D\uDFE2", "warning": "\u26A0\uFE0F"};
       historyHtml = `<div class="ms-repair-history">
-        <div style="font-weight:600;font-size:0.85em;margin:12px 0 6px;color:var(--secondary-text-color,#999)">REPAIR HISTORY</div>
+        <div style="font-weight:600;font-size:0.85em;margin:12px 0 6px;color:var(--secondary-text-color,#999)">${this._escHtml(this._t("repairHistory")).toUpperCase()}</div>
         ${nodeHistory.slice(0, 10).map(e => {
           const ts = new Date(e.timestamp);
-          const time = ts.toLocaleTimeString("de-CH", {hour:"2-digit",minute:"2-digit"});
-          const date = ts.toLocaleDateString("de-CH");
+          const time = this._formatDate(ts, {hour:"2-digit",minute:"2-digit"});
+          const date = this._formatDate(ts, {year:"numeric",month:"2-digit",day:"2-digit"});
           const icon = histIcons[e.level] || "\u2139\uFE0F";
           const color = e.level === "success" ? "#4caf50" : e.level === "error" ? "#f44336" : e.level === "action" ? "#ce93d8" : "#999";
-          return `<div style="display:flex;gap:8px;padding:3px 0;font-size:0.8em"><span>${icon}</span><span style="color:${color}">${this._escHtml(e.message)}</span><span style="color:var(--secondary-text-color,#666);margin-left:auto;white-space:nowrap">${date} ${time}</span></div>`;
+          return `<div style="display:flex;gap:8px;padding:3px 0;font-size:0.8em"><span>${icon}</span><span style="color:${color}">${this._escHtml(this._localizeLogMessage(e))}</span><span style="color:var(--secondary-text-color,#666);margin-left:auto;white-space:nowrap">${date} ${time}</span></div>`;
         }).join("")}
       </div>`;
     }
@@ -387,9 +402,9 @@ class MatterSaverCard extends HTMLElement {
 
     // Action buttons
     buttonsEl.innerHTML = `
-      <button class="ms-action-btn ping" data-action="ping" data-node="${nodeId}">\uD83C\uDFD3 Ping</button>
-      <button class="ms-action-btn interview" data-action="interview" data-node="${nodeId}">\uD83D\uDD04 Re-Interview</button>
-      <button class="ms-action-btn reset" data-action="reset" data-node="${nodeId}">\uD83D\uDDD1 Reset Counters</button>
+      <button class="ms-action-btn ping" data-action="ping" data-node="${nodeId}">\uD83C\uDFD3 ${this._escHtml(this._actionLabel("ping"))}</button>
+      <button class="ms-action-btn interview" data-action="interview" data-node="${nodeId}">\uD83D\uDD04 ${this._escHtml(this._actionLabel("interview"))}</button>
+      <button class="ms-action-btn reset" data-action="reset" data-node="${nodeId}">\uD83D\uDDD1 ${this._escHtml(this._actionLabel("reset"))}</button>
     `;
 
     // Attach button handlers
@@ -420,25 +435,25 @@ class MatterSaverCard extends HTMLElement {
       "reset": "reset_counters",
     };
     const labels = {
-      "ping": "Ping",
-      "interview": "Re-Interview",
-      "reset": "Reset Counters",
+      "ping": this._actionLabel("ping"),
+      "interview": this._actionLabel("interview"),
+      "reset": this._actionLabel("reset"),
     };
 
     const hints = {
-      "ping": "Ping wird ausgeführt...",
-      "interview": "Re-Interview läuft, das kann bis zu 30 Sekunden dauern...",
-      "reset": "Error Counter werden zurückgesetzt...",
+      "ping": this._t("pingRunning"),
+      "interview": this._t("interviewRunning"),
+      "reset": this._t("resetRunning"),
     };
-    statusEl.textContent = hints[action] || `${labels[action]} wird ausgeführt...`;
+    statusEl.textContent = hints[action] || `${labels[action]}...`;
 
     try {
       await this._hass.callService("matter_saver", serviceMap[action], { node_id: nodeId });
       statusEl.className = "ms-action-status show success";
-      statusEl.textContent = `${labels[action]} erfolgreich für Node ${nodeId}`;
+      statusEl.textContent = this._t("actionSuccessForNode", { action: labels[action], nodeId });
     } catch (err) {
       statusEl.className = "ms-action-status show error";
-      statusEl.textContent = `Fehler: ${err.message || err}`;
+      statusEl.textContent = this._t("errorPrefix", { error: err.message || err });
     }
 
     buttons.forEach(b => b.disabled = false);
@@ -457,18 +472,18 @@ class MatterSaverCard extends HTMLElement {
 
   async _restartMatterAddon(nodeId) {
     const statusEl = this.querySelector("#ms-action-status");
-    if (!confirm("Matter Server Addon neustarten?\n\nAlle Matter-Geräte werden kurzzeitig offline sein (30-60 Sek).")) return;
+    if (!confirm(this._t("restartAddonConfirm"))) return;
 
     statusEl.className = "ms-action-status show loading";
-    statusEl.textContent = "Matter Server Addon wird neu gestartet, alle Geräte werden kurzzeitig offline...";
+    statusEl.textContent = this._t("restartAddonLoading");
 
     try {
       await this._hass.callService("hassio", "addon_restart", { addon: "core_matter_server" });
       statusEl.className = "ms-action-status show success";
-      statusEl.textContent = "Matter Server Addon neu gestartet. Geräte kommen in 1-5 Minuten zurück.";
+      statusEl.textContent = this._t("restartAddonSuccess");
     } catch (err) {
       statusEl.className = "ms-action-status show error";
-      statusEl.textContent = `Fehler: ${err.message || err}`;
+      statusEl.textContent = this._t("errorPrefix", { error: err.message || err });
     }
   }
 
@@ -483,29 +498,33 @@ class MatterSaverCard extends HTMLElement {
 
     const statsEl = this.querySelector("#ms-stats");
     if (statsEl) {
-      statsEl.innerHTML = `
-        <span class="ms-stat"><span class="ms-dot online"></span> ${online} online</span>
-        <span class="ms-stat"><span class="ms-dot offline"></span> ${offline} offline</span>
-      `;
+      if (this._showStats) {
+        statsEl.innerHTML = `
+          <span class="ms-stat"><span class="ms-dot online"></span> ${online} ${this._escHtml(this._t("online"))}</span>
+          <span class="ms-stat"><span class="ms-dot offline"></span> ${offline} ${this._escHtml(this._t("offline"))}</span>
+        `;
+      } else {
+        statsEl.innerHTML = "";
+      }
     }
 
     const theadEl = this.querySelector("#ms-thead");
     if (theadEl) {
       theadEl.innerHTML = `<tr>
-        ${this._th("node_id", "Node")}
-        ${this._th("name", "Name")}
-        ${this._th("area", "Area")}
-        ${this._th("product", "Product")}
-        ${this._th("status", "Status")}
-        ${this._th("thread_role", "Thread")}
-        ${this._th("neighbors", "Neighbors")}
-        ${this._th("children", "Children")}
-        ${this._th("parent", "Parent")}
-        ${this._th("power", "Power")}
-        ${this._th("battery", "Battery")}
-        ${this._th("firmware", "Firmware")}
-        ${this._th("errors", "Errors")}
-        ${this._th("last_seen", "Last Seen")}
+        ${this._th("node_id", this._t("node"))}
+        ${this._th("name", this._t("name"))}
+        ${this._th("area", this._t("area"))}
+        ${this._th("product", this._t("product"))}
+        ${this._th("status", this._t("status"))}
+        ${this._th("thread_role", this._t("thread"))}
+        ${this._th("neighbors", this._t("neighbors"))}
+        ${this._th("children", this._t("children"))}
+        ${this._th("parent", this._t("parent"))}
+        ${this._th("power", this._t("power"))}
+        ${this._th("battery", this._t("battery"))}
+        ${this._th("firmware", this._t("firmware"))}
+        ${this._th("errors", this._t("errors"))}
+        ${this._th("last_seen", this._t("lastSeen"))}
       </tr>`;
     }
 
@@ -524,7 +543,7 @@ class MatterSaverCard extends HTMLElement {
     const tbodyEl = this.querySelector("#ms-tbody");
     if (tbodyEl) {
       if (devices.length === 0) {
-        tbodyEl.innerHTML = `<tr class="ms-no-results"><td colspan="${CC}">${this._escHtml(this._deviceDataError || "No devices found")}</td></tr>`;
+        tbodyEl.innerHTML = `<tr class="ms-no-results"><td colspan="${CC}">${this._escHtml(this._deviceDataError || this._t("noDevicesFound"))}</td></tr>`;
       } else {
         const sorted = this._sortDevices(devices);
         tbodyEl.innerHTML = this._groupDevices(sorted, CC);
@@ -539,13 +558,13 @@ class MatterSaverCard extends HTMLElement {
   }
 
   _getDevices(state) {
-    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-card");
+    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-card", this._hass);
     if (result) {
       this._deviceDataError = result.error;
       return result.devices;
     }
 
-    this._deviceDataError = "Shared device decoder unavailable.";
+    this._deviceDataError = this._t("sharedDeviceDecoderUnavailable");
     console.warn("matter-saver-card: shared card utilities unavailable; returning no devices to avoid mis-rendering.");
     return [];
   }
@@ -582,27 +601,27 @@ class MatterSaverCard extends HTMLElement {
 
   _groupValue(device, field) {
     switch (field) {
-      case "status": return device.status === "online" ? "Online" : "Offline";
-      case "power": return device.power === "battery" ? "Battery" : "Wired";
-      case "product": return device.product || "Unknown";
-      case "area": return device.area || "No Area";
-      case "firmware": return device.firmware || "Unknown";
+      case "status": return device.status === "online" ? this._t("onlineGroup") : this._t("offlineGroup");
+      case "power": return device.power === "battery" ? this._t("batteryPower") : this._t("wiredPower");
+      case "product": return device.product || this._t("unknown");
+      case "area": return device.area || this._t("noArea");
+      case "firmware": return device.firmware || this._t("unknown");
       case "thread_role": return this._threadRoleLabel(device.thread_role);
-      case "parent": return device.parent || "No Parent (Router)";
+      case "parent": return device.parent || this._t("noParentRouter");
       case "battery":
-        if (device.battery == null) return "No Battery";
-        if (device.battery < 20) return "Critical (< 20%)";
-        if (device.battery < 50) return "Low (< 50%)";
-        return "Good (50%+)";
+        if (device.battery == null) return this._t("noBattery");
+        if (device.battery < 20) return this._t("criticalBattery");
+        if (device.battery < 50) return this._t("lowBattery");
+        return this._t("goodBattery");
       case "errors":
-        if (!device.errors || device.errors === 0) return "No Errors";
-        if (device.errors > 100000) return "Critical";
-        if (device.errors > 10000) return "High";
-        if (device.errors > 1000) return "Moderate";
-        return "Low";
+        if (!device.errors || device.errors === 0) return this._t("noErrors");
+        if (device.errors > 100000) return this._t("critical");
+        if (device.errors > 10000) return this._t("high");
+        if (device.errors > 1000) return this._t("moderate");
+        return this._t("low");
       case "last_seen":
-        if (!device.last_seen) return "Never seen";
-        return "Seen";
+        if (!device.last_seen) return this._t("neverSeen");
+        return this._t("seen");
       default: return "";
     }
   }
@@ -613,7 +632,7 @@ class MatterSaverCard extends HTMLElement {
     const parentHtml = d.parent
       ? `<span class="ms-parent-link" data-node-id="${d.node_id}">${this._escHtml(d.parent)}</span>`
       : (d.thread_role === "router" || d.thread_role === "leader" || d.thread_role === "reed")
-        ? `<span class="ms-parent-link" data-node-id="${d.node_id}">Router</span>`
+        ? `<span class="ms-parent-link" data-node-id="${d.node_id}">${this._escHtml(this._t("routerFallback"))}</span>`
         : "-";
 
     return `<tr class="${rowClass}">
@@ -621,26 +640,21 @@ class MatterSaverCard extends HTMLElement {
       <td><span class="ms-name-link" data-node-id="${d.node_id}">${this._escHtml(d.name)}</span></td>
       <td>${this._escHtml(d.area)}</td>
       <td>${this._escHtml(d.product)}</td>
-      <td><span class="ms-status">${statusIcon} ${d.status}</span></td>
+      <td><span class="ms-status">${statusIcon} ${this._statusLabel(d.status)}</span></td>
       <td>${this._threadRoleHtml(d.thread_role)}</td>
       <td>${d.neighbors || "-"}</td>
       <td>${d.children || "-"}</td>
       <td>${parentHtml}</td>
-      <td>${d.power}</td>
+      <td>${this._escHtml(this._powerLabel(d.power))}</td>
       <td>${this._batteryHtml(d.battery)}</td>
       <td>${this._firmwareHtml(d.firmware, d.update_available)}</td>
-      <td>${this._errorsHtml(d.errors, d.error_comment)}</td>
+      <td>${this._errorsHtml(d.errors, this._localizeIssueComment(d.error_comment, d.error_comment_codes))}</td>
       <td>${this._lastSeenHtml(d.last_seen)}</td>
     </tr>`;
   }
 
   _threadRoleLabel(role) {
-    const labels = {
-      "leader": "Leader", "router": "Router", "reed": "REED",
-      "end_device": "End Device", "sed": "Sleepy End Device",
-      "unassigned": "Unassigned", "unspecified": "Unspecified",
-    };
-    return labels[role] || role || "Unknown";
+    return window.MatterSaverCardUtils?.roleLabel(this._hass, role) || role || this._t("unknown");
   }
 
   _threadRoleHtml(role) {
@@ -683,21 +697,77 @@ class MatterSaverCard extends HTMLElement {
 
   _lastSeenHtml(isoStr) {
     if (!isoStr) return `<span class="ms-lastseen">-</span>`;
-    const then = new Date(isoStr);
-    const now = new Date();
-    const diffMin = Math.floor((now - then) / 60000);
-    let text;
-    if (diffMin < 1) text = "just now";
-    else if (diffMin < 60) text = `${diffMin}m ago`;
-    else if (diffMin < 1440) text = `${Math.floor(diffMin / 60)}h ago`;
-    else text = `${Math.floor(diffMin / 1440)}d ago`;
-    return `<span class="ms-lastseen">${text}</span>`;
+    return `<span class="ms-lastseen">${this._escHtml(this._relativeTime(isoStr))}</span>`;
+  }
+
+  _t(key, vars) {
+    return window.MatterSaverCardUtils?.t(this._hass, key, vars) || key;
+  }
+
+  _actionLabel(action) {
+    return window.MatterSaverCardUtils?.actionLabel(this._hass, action) || action;
+  }
+
+  _formatDate(value, options) {
+    return window.MatterSaverCardUtils?.formatDate(this._hass, value, options) || "";
+  }
+
+  _relativeTime(value) {
+    return window.MatterSaverCardUtils?.formatRelativeTime(this._hass, value) || "";
+  }
+
+  _localizeIssueComment(message, codes) {
+    return window.MatterSaverCardUtils?.localizeIssueComment(this._hass, message, codes) || message || "";
+  }
+
+  _localizeLogMessage(entry) {
+    return window.MatterSaverCardUtils?.localizeLogMessage(this._hass, entry) || entry?.message || "";
+  }
+
+  _powerLabel(power) {
+    if (power === "battery") return this._t("batteryPower");
+    if (power === "wired") return this._t("wiredPower");
+    return power || "-";
+  }
+
+  _statusLabel(status) {
+    return status === "offline" ? this._t("offline") : this._t("online");
+  }
+
+  _entryMatchesAction(entry, action) {
+    if (entry?.action === action) return true;
+    const text = String(entry?.message || "");
+    if (action === "ping") return text.includes("Ping");
+    if (action === "interview") return text.includes("Interview");
+    if (action === "reset") return text.includes("Reset");
+    return false;
   }
 
   _escHtml(str) {
     const div = document.createElement("div");
     div.textContent = str || "";
     return div.innerHTML;
+  }
+
+  static async getConfigElement() {
+    const editor = document.createElement("matter-saver-card-editor");
+    editor.cardType = "matter-saver-card";
+    return editor;
+  }
+
+  static getStubConfig() {
+    return {
+      type: window.MatterSaverCardEditor?.buildCardType("matter-saver-card") || "custom:matter-saver-card",
+      entity: "sensor.matter_saver_devices",
+    };
+  }
+
+  getGridOptions() {
+    return {
+      columns: 12,
+      rows: 8,
+      min_columns: 6,
+    };
   }
 
   getCardSize() { return 8; }
@@ -709,6 +779,8 @@ window.customCards.push({
   type: "matter-saver-card",
   name: "Matter Saver Card",
   description: "Sortable Matter device table with route visualization",
+  preview: true,
+  documentationURL: "https://github.com/hellosamblack/matter-saver",
 });
 
 /* ── Sidebar Badge: show offline device count ── */

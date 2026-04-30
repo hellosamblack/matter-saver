@@ -1,6 +1,419 @@
 (() => {
   const COMPACT_DEVICE_ERROR = "Shared device decoder unavailable.";
 
+  const STRINGS = {
+    en: {
+      entityNotFound: "Entity not found",
+      sharedDeviceDecoderUnavailable: "Shared device decoder unavailable.",
+      filterDevicesPlaceholder: "Filter devices...",
+      filterLogPlaceholder: "Filter log...",
+      noActivities: "No activity yet",
+      entry_one: "entry",
+      entry_other: "entries",
+      justNow: "just now",
+      minuteAgo: "{count}m ago",
+      hourAgo: "{count}h ago",
+      dayAgo: "{count}d ago",
+      routeTitle: "Route: {name}",
+      unknown: "Unknown",
+      borderRouterGateway: "Border Router Gateway",
+      online: "online",
+      offline: "offline",
+      node: "Node",
+      name: "Name",
+      area: "Area",
+      product: "Product",
+      status: "Status",
+      thread: "Thread",
+      neighbors: "Neighbors",
+      children: "Children",
+      parent: "Parent",
+      power: "Power",
+      battery: "Battery",
+      firmware: "Firmware",
+      errors: "Errors",
+      lastSeen: "Last Seen",
+      nodeId: "Node ID",
+      diagnostics: "Diagnostics",
+      offline7d: "Offline 7d",
+      offline30d: "Offline 30d",
+      repairHistory: "Repair history",
+      onlineGroup: "Online",
+      offlineGroup: "Offline",
+      batteryPower: "Battery",
+      wiredPower: "Wired",
+      noArea: "No Area",
+      noParentRouter: "No Parent (Router)",
+      noBattery: "No Battery",
+      criticalBattery: "Critical (< 20%)",
+      lowBattery: "Low (< 50%)",
+      goodBattery: "Good (50%+)",
+      noErrors: "No Errors",
+      critical: "Critical",
+      high: "High",
+      moderate: "Moderate",
+      low: "Low",
+      neverSeen: "Never seen",
+      seen: "Seen",
+      noDevicesFound: "No devices found",
+      routerFallback: "Router",
+      leader: "Leader",
+      router: "Router",
+      reed: "REED",
+      end_device: "End Device",
+      sed: "Sleepy End Device",
+      unassigned: "Unassigned",
+      unspecified: "Unspecified",
+      homeAssistant: "Home Assistant",
+      endDevices: "End Devices",
+      noEndDevicesAttached: "No end devices attached",
+      unassignedEndDevices: "Unassigned end devices",
+      parentLegend: "Parent",
+      neighborLegend: "Neighbor",
+      reset: "Reset",
+      batteryLabel: "Battery: {value}%",
+      offlineBadge: "OFFLINE",
+      autoRecoveryPingFailed: "Auto-Recovery: ping failed",
+      autoRecoveryPingOk: "Auto-Recovery: ping ok, starting re-interview",
+      autoRecoveryInterviewFailed: "Auto-Recovery: re-interview failed",
+      autoRecoveryInterviewSucceeded: "Auto-Recovery: re-interview succeeded",
+      problemDetected: "problem detected: {problem}",
+      problemUpdated: "problem updated: {problem}",
+      problemCleared: "problem cleared",
+      actionStarted: "{action} started",
+      actionFailed: "{action} failed: {error}",
+      actionSucceeded: "{action} succeeded",
+      suggestionPingFirst: "💡 Recommendation: Try Ping first to check whether the device is reachable on the Thread network.",
+      suggestionInterviewNext: "💡 Recommendation: Ping succeeded, so the device is reachable on Thread. Try Re-Interview to rebuild the Matter connection.",
+      suggestionRestartAddon: "⚠️ Recommendation: Ping succeeded but Re-Interview failed — the Matter application is not responding.<br><br>1. Restart the Matter Server addon: <button class=\"ms-action-btn\" id=\"ms-restart-addon\" style=\"background:#b71c1c;color:#fff;display:inline-flex;padding:6px 14px;font-size:0.85em;margin:4px 0\">⚡ Restart Matter Server</button><br>2. If that does not help: physically power-cycle the device (5 seconds) and plug it back in",
+      suggestionPingFailed: "⚠️ Recommendation: Ping failed — the device is unreachable. Possible causes:<br>1. No power → check plug/breaker<br>2. Outside Thread range → move it closer to a router<br>3. Hardware failure",
+      suggestionResetCounters: "💡 Recommendation: Error counters are high. Run Reset Counters and watch whether the errors return. If they do, move the device.",
+      suggestionMoveDevice: "⚠️ Recommendation: Counters were already reset. If errors keep increasing, the device is likely in an area with strong RF interference (Wi-Fi, microwave). Reposition it or inspect the Thread channel.",
+      pingRunning: "Running Ping...",
+      interviewRunning: "Running Re-Interview, this can take up to 30 seconds...",
+      resetRunning: "Resetting error counters...",
+      actionSuccessForNode: "{action} succeeded for Node {nodeId}",
+      errorPrefix: "Error: {error}",
+      restartAddonConfirm: "Restart the Matter Server addon?\n\nAll Matter devices will be offline briefly (30–60 seconds).",
+      restartAddonLoading: "Restarting the Matter Server addon. All devices will go offline briefly...",
+      restartAddonSuccess: "Matter Server addon restarted. Devices should come back within 1–5 minutes.",
+      issue_thread_noise_severe: "severe channel interference",
+      issue_thread_noise_moderate: "channel interference",
+      issue_tx_abort_severe: "many aborted transmissions",
+      issue_tx_abort_moderate: "aborted transmissions",
+      issue_rx_no_frame_severe: "reception problems",
+      issue_rx_no_frame_moderate: "minor reception problems",
+      issue_rx_unknown_neighbors: "unknown neighbors",
+      issue_rx_invalid_source: "invalid sources",
+      issue_tx_retry_severe: "very poor connection",
+      issue_tx_retry_moderate: "poor connection",
+    },
+    de: {
+      entityNotFound: "Entität nicht gefunden",
+      sharedDeviceDecoderUnavailable: "Gemeinsamer Geräte-Decoder ist nicht verfügbar.",
+      filterDevicesPlaceholder: "Geräte filtern...",
+      filterLogPlaceholder: "Protokoll filtern...",
+      noActivities: "Noch keine Aktivitäten",
+      entry_one: "Eintrag",
+      entry_other: "Einträge",
+      justNow: "gerade eben",
+      minuteAgo: "vor {count}m",
+      hourAgo: "vor {count}h",
+      dayAgo: "vor {count}d",
+      routeTitle: "Route: {name}",
+      unknown: "Unbekannt",
+      borderRouterGateway: "Border-Router-Gateway",
+      online: "online",
+      offline: "offline",
+      node: "Node",
+      name: "Name",
+      area: "Bereich",
+      product: "Produkt",
+      status: "Status",
+      thread: "Thread",
+      neighbors: "Nachbarn",
+      children: "Kinder",
+      parent: "Parent",
+      power: "Strom",
+      battery: "Batterie",
+      firmware: "Firmware",
+      errors: "Fehler",
+      lastSeen: "Zuletzt gesehen",
+      nodeId: "Node ID",
+      diagnostics: "Diagnose",
+      offline7d: "Offline 7d",
+      offline30d: "Offline 30d",
+      repairHistory: "Reparaturverlauf",
+      onlineGroup: "Online",
+      offlineGroup: "Offline",
+      batteryPower: "Batterie",
+      wiredPower: "Netzteil",
+      noArea: "Kein Bereich",
+      noParentRouter: "Kein Parent (Router)",
+      noBattery: "Keine Batterie",
+      criticalBattery: "Kritisch (< 20%)",
+      lowBattery: "Niedrig (< 50%)",
+      goodBattery: "Gut (50%+)",
+      noErrors: "Keine Fehler",
+      critical: "Kritisch",
+      high: "Hoch",
+      moderate: "Mittel",
+      low: "Niedrig",
+      neverSeen: "Nie gesehen",
+      seen: "Gesehen",
+      noDevicesFound: "Keine Geräte gefunden",
+      routerFallback: "Router",
+      leader: "Leader",
+      router: "Router",
+      reed: "REED",
+      end_device: "End Device",
+      sed: "Sleepy End Device",
+      unassigned: "Nicht zugeordnet",
+      unspecified: "Nicht spezifiziert",
+      homeAssistant: "Home Assistant",
+      endDevices: "End Devices",
+      noEndDevicesAttached: "Keine End Devices angebunden",
+      unassignedEndDevices: "Nicht zugeordnete End Devices",
+      parentLegend: "Parent",
+      neighborLegend: "Nachbar",
+      reset: "Reset",
+      batteryLabel: "Batterie: {value}%",
+      offlineBadge: "OFFLINE",
+      autoRecoveryPingFailed: "Auto-Recovery: Ping fehlgeschlagen",
+      autoRecoveryPingOk: "Auto-Recovery: Ping OK, starte Re-Interview",
+      autoRecoveryInterviewFailed: "Auto-Recovery: Re-Interview fehlgeschlagen",
+      autoRecoveryInterviewSucceeded: "Auto-Recovery: Re-Interview erfolgreich",
+      problemDetected: "Problem erkannt: {problem}",
+      problemUpdated: "Problem aktualisiert: {problem}",
+      problemCleared: "Problem behoben",
+      actionStarted: "{action} gestartet",
+      actionFailed: "{action} fehlgeschlagen: {error}",
+      actionSucceeded: "{action} erfolgreich",
+      suggestionPingFirst: "💡 <strong>Empfehlung:</strong> Zuerst Ping versuchen, um zu prüfen, ob das Gerät auf Thread-Ebene erreichbar ist.",
+      suggestionInterviewNext: "💡 <strong>Empfehlung:</strong> Ping war erfolgreich — das Gerät ist auf Thread-Ebene erreichbar. Re-Interview versuchen, um die Matter-Verbindung neu aufzubauen.",
+      suggestionRestartAddon: "⚠️ <strong>Empfehlung:</strong> Ping OK, aber Re-Interview gescheitert — die Matter-Application reagiert nicht.<br><br>1. Matter Server Addon neu starten: <button class=\"ms-action-btn\" id=\"ms-restart-addon\" style=\"background:#b71c1c;color:#fff;display:inline-flex;padding:6px 14px;font-size:0.85em;margin:4px 0\">⚡ Matter Server neu starten</button><br>2. Falls das nicht hilft: Gerät physisch vom Strom trennen (5 Sek.) und wieder einstecken",
+      suggestionPingFailed: "⚠️ <strong>Empfehlung:</strong> Ping fehlgeschlagen — das Gerät ist nicht erreichbar. Mögliche Ursachen:<br>1. Kein Strom → Stecker/Sicherung prüfen<br>2. Außerhalb der Thread-Reichweite → näher an einen Router stellen<br>3. Hardware-Defekt",
+      suggestionResetCounters: "💡 <strong>Empfehlung:</strong> Hohe Error-Zähler. Reset Counters ausführen und beobachten, ob die Fehler wiederkommen. Falls ja, Gerät umplatzieren.",
+      suggestionMoveDevice: "⚠️ <strong>Empfehlung:</strong> Counter wurden bereits zurückgesetzt. Falls Fehler weiter steigen, steht das Gerät vermutlich in einem Bereich mit starken Funkstörungen (WLAN, Mikrowelle). Umplatzieren oder Thread-Kanal prüfen.",
+      pingRunning: "Ping wird ausgeführt...",
+      interviewRunning: "Re-Interview läuft, das kann bis zu 30 Sekunden dauern...",
+      resetRunning: "Error Counter werden zurückgesetzt...",
+      actionSuccessForNode: "{action} erfolgreich für Node {nodeId}",
+      errorPrefix: "Fehler: {error}",
+      restartAddonConfirm: "Matter Server Addon neu starten?\n\nAlle Matter-Geräte werden kurzzeitig offline sein (30–60 Sek.).",
+      restartAddonLoading: "Matter Server Addon wird neu gestartet, alle Geräte werden kurzzeitig offline...",
+      restartAddonSuccess: "Matter Server Addon neu gestartet. Geräte kommen in 1–5 Minuten zurück.",
+      issue_thread_noise_severe: "starke Kanalstörungen",
+      issue_thread_noise_moderate: "Kanalstörungen",
+      issue_tx_abort_severe: "viele Sendeabbrüche",
+      issue_tx_abort_moderate: "Sendeabbrüche",
+      issue_rx_no_frame_severe: "Empfangsprobleme",
+      issue_rx_no_frame_moderate: "leichte Empfangsprobleme",
+      issue_rx_unknown_neighbors: "unbekannte Nachbarn",
+      issue_rx_invalid_source: "ungültige Quellen",
+      issue_tx_retry_severe: "sehr schlechte Verbindung",
+      issue_tx_retry_moderate: "schlechte Verbindung",
+    },
+  };
+
+  const ACTIONS = {
+    en: { ping: "Ping", interview: "Re-Interview", reset: "Reset Counters" },
+    de: { ping: "Ping", interview: "Re-Interview", reset: "Reset Counters" },
+  };
+
+  const ISSUE_ALIASES = {
+    "starke Kanalstörungen": "thread_noise_severe",
+    "Kanalstörungen": "thread_noise_moderate",
+    "viele Sendeabbrüche": "tx_abort_severe",
+    "Sendeabbrüche": "tx_abort_moderate",
+    "Empfangsprobleme": "rx_no_frame_severe",
+    "leichte Empfangsprobleme": "rx_no_frame_moderate",
+    "unbekannte Nachbarn": "rx_unknown_neighbors",
+    "ungültige Quellen": "rx_invalid_source",
+    "sehr schlechte Verbindung": "tx_retry_severe",
+    "schlechte Verbindung": "tx_retry_moderate",
+    "severe channel interference": "thread_noise_severe",
+    "channel interference": "thread_noise_moderate",
+    "many aborted transmissions": "tx_abort_severe",
+    "aborted transmissions": "tx_abort_moderate",
+    "reception problems": "rx_no_frame_severe",
+    "minor reception problems": "rx_no_frame_moderate",
+    "unknown neighbors": "rx_unknown_neighbors",
+    "invalid sources": "rx_invalid_source",
+    "very poor connection": "tx_retry_severe",
+    "poor connection": "tx_retry_moderate",
+  };
+
+  const LEGACY_ACTIONS = {
+    Ping: "ping",
+    "Re-Interview": "interview",
+    "Error Counter Reset": "reset",
+    "Reset Counters": "reset",
+  };
+
+  function normalizeLanguage(language) {
+    return String(language || "en").toLowerCase().startsWith("de") ? "de" : "en";
+  }
+
+  function getLocale(hass) {
+    return hass?.locale?.language || navigator.language || "en";
+  }
+
+  function getLanguage(hass) {
+    return normalizeLanguage(getLocale(hass));
+  }
+
+  function template(str, vars = {}) {
+    return String(str).replace(/\{(\w+)\}/g, (_, key) => String(vars[key] ?? ""));
+  }
+
+  function t(hass, key, vars = {}) {
+    const lang = getLanguage(hass);
+    const value = STRINGS[lang]?.[key] ?? STRINGS.en[key] ?? key;
+    return template(value, vars);
+  }
+
+  function actionLabel(hass, action) {
+    const lang = getLanguage(hass);
+    return ACTIONS[lang]?.[action] || ACTIONS.en[action] || action || "";
+  }
+
+  function roleLabel(hass, role) {
+    return t(hass, role || "unknown");
+  }
+
+  function formatDate(hass, value, options) {
+    const date = value instanceof Date ? value : new Date(value);
+    return new Intl.DateTimeFormat(getLocale(hass), options).format(date);
+  }
+
+  function formatRelativeTime(hass, value) {
+    const date = value instanceof Date ? value : new Date(value);
+    const diffMin = Math.floor((Date.now() - date.getTime()) / 60000);
+    if (diffMin < 1) return t(hass, "justNow");
+    if (diffMin < 60) return t(hass, "minuteAgo", { count: diffMin });
+    if (diffMin < 1440) return t(hass, "hourAgo", { count: Math.floor(diffMin / 60) });
+    return t(hass, "dayAgo", { count: Math.floor(diffMin / 1440) });
+  }
+
+  function formatList(hass, values) {
+    const filtered = values.filter(Boolean);
+    if (typeof Intl.ListFormat === "function") {
+      return new Intl.ListFormat(getLocale(hass), { style: "long", type: "conjunction" }).format(filtered);
+    }
+    return filtered.join(", ");
+  }
+
+  function normalizeIssueCodes(codes, message = "") {
+    if (Array.isArray(codes) && codes.length > 0) return codes;
+    return String(message || "")
+      .split(",")
+      .map((part) => ISSUE_ALIASES[part.trim()])
+      .filter(Boolean);
+  }
+
+  function localizeIssueComment(hass, message = "", codes = []) {
+    const normalized = normalizeIssueCodes(codes, message);
+    if (normalized.length > 0) {
+      return formatList(hass, normalized.map((code) => t(hass, `issue_${code}`)));
+    }
+    return message || "";
+  }
+
+  function legacyActionCode(raw) {
+    return LEGACY_ACTIONS[raw] || null;
+  }
+
+  function localizeLegacyLogMessage(hass, message) {
+    const text = String(message || "");
+    if (!text) return "";
+
+    if (text === "online") return t(hass, "online");
+    if (text === "offline") return t(hass, "offline");
+    if (text === "problem cleared") return t(hass, "problemCleared");
+
+    const problemDetected = text.match(/^problem detected: (.+)$/i);
+    if (problemDetected) {
+      return t(hass, "problemDetected", {
+        problem: localizeIssueComment(hass, problemDetected[1]),
+      });
+    }
+
+    const problemUpdated = text.match(/^problem updated: (.+)$/i);
+    if (problemUpdated) {
+      return t(hass, "problemUpdated", {
+        problem: localizeIssueComment(hass, problemUpdated[1]),
+      });
+    }
+
+    const actionStarted = text.match(/^(Ping|Re-Interview|Error Counter Reset|Reset Counters) gestartet$/);
+    if (actionStarted) {
+      const action = legacyActionCode(actionStarted[1]);
+      return t(hass, "actionStarted", { action: actionLabel(hass, action) });
+    }
+
+    const actionFailed = text.match(/^(Ping|Re-Interview|Error Counter Reset|Reset Counters) fehlgeschlagen: (.+)$/);
+    if (actionFailed) {
+      const action = legacyActionCode(actionFailed[1]);
+      return t(hass, "actionFailed", { action: actionLabel(hass, action), error: actionFailed[2] });
+    }
+
+    if (text === "Ping erfolgreich") return t(hass, "actionSucceeded", { action: actionLabel(hass, "ping") });
+    if (text === "Re-Interview erfolgreich") return t(hass, "actionSucceeded", { action: actionLabel(hass, "interview") });
+    if (text === "Error Counter zurückgesetzt") return t(hass, "actionSucceeded", { action: actionLabel(hass, "reset") });
+    if (text === "Auto-Recovery: Ping fehlgeschlagen") return t(hass, "autoRecoveryPingFailed");
+    if (text === "Auto-Recovery: Ping OK, starte Re-Interview") return t(hass, "autoRecoveryPingOk");
+    if (text === "Auto-Recovery: Re-Interview fehlgeschlagen") return t(hass, "autoRecoveryInterviewFailed");
+    if (text === "Auto-Recovery: Re-Interview erfolgreich") return t(hass, "autoRecoveryInterviewSucceeded");
+
+    return text;
+  }
+
+  function localizeLogMessage(hass, entry) {
+    const key = entry?.message_key;
+    if (!key) return localizeLegacyLogMessage(hass, entry?.message || "");
+
+    switch (key) {
+      case "node_online":
+        return t(hass, "online");
+      case "node_offline":
+        return t(hass, "offline");
+      case "problem_detected":
+        return t(hass, "problemDetected", {
+          problem: localizeIssueComment(hass, entry.problem_message || entry.message, entry.problem_codes),
+        });
+      case "problem_updated":
+        return t(hass, "problemUpdated", {
+          problem: localizeIssueComment(hass, entry.problem_message || entry.message, entry.problem_codes),
+        });
+      case "problem_cleared":
+        return t(hass, "problemCleared");
+      case "action_started":
+        return t(hass, "actionStarted", { action: actionLabel(hass, entry.action) });
+      case "action_failed":
+        return t(hass, "actionFailed", {
+          action: actionLabel(hass, entry.action),
+          error: entry.error || "",
+        });
+      case "action_succeeded":
+        return t(hass, "actionSucceeded", { action: actionLabel(hass, entry.action) });
+      case "auto_recovery_ping_failed":
+        return t(hass, "autoRecoveryPingFailed");
+      case "auto_recovery_ping_ok":
+        return t(hass, "autoRecoveryPingOk");
+      case "auto_recovery_interview_failed":
+        return t(hass, "autoRecoveryInterviewFailed");
+      case "auto_recovery_interview_succeeded":
+        return t(hass, "autoRecoveryInterviewSucceeded");
+      default:
+        return localizeLegacyLogMessage(hass, entry?.message || "");
+    }
+  }
+
+  function formatCountLabel(hass, count) {
+    return `${count} ${t(hass, count === 1 ? "entry_one" : "entry_other")}`;
+  }
+
   function hasCompactDevices(devices) {
     return Array.isArray(devices) && devices.some((device) => (
       device
@@ -10,7 +423,7 @@
     ));
   }
 
-  function getDevices(state, cardName) {
+  function getDevices(state, cardName, hass) {
     const normalized = window.MatterSaverDeviceData?.normalizeDevices(state);
     if (Array.isArray(normalized)) {
       return { devices: normalized, error: "" };
@@ -23,7 +436,7 @@
 
     if (hasCompactDevices(devices)) {
       console.warn(`${cardName}: compact device payload found but MatterSaverDeviceData.normalizeDevices is unavailable; returning no devices to avoid mis-rendering.`);
-      return { devices: [], error: COMPACT_DEVICE_ERROR };
+      return { devices: [], error: t(hass, "sharedDeviceDecoderUnavailable") };
     }
 
     return { devices, error: "" };
@@ -33,5 +446,15 @@
     COMPACT_DEVICE_ERROR,
     getDevices,
     hasCompactDevices,
+    getLanguage,
+    getLocale,
+    t,
+    actionLabel,
+    roleLabel,
+    formatDate,
+    formatRelativeTime,
+    formatCountLabel,
+    localizeIssueComment,
+    localizeLogMessage,
   };
 })();

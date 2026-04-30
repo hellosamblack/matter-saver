@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from . import UPDATE_ICON_URL
 from .const import (
     DOMAIN,
     GITHUB_LATEST_RELEASE_API_URL,
@@ -50,6 +51,7 @@ class MatterSaverUpdateEntity(UpdateEntity):
         self._attr_installed_version = get_integration_version()
         self._attr_latest_version = self._attr_installed_version
         self._attr_release_url = get_repository_url()
+        self._attr_entity_picture = UPDATE_ICON_URL
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Matter Saver",

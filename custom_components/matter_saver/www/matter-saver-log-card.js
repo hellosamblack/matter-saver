@@ -9,6 +9,15 @@ class MatterSaverLogCard extends HTMLElement {
   setConfig(config) {
     this.config = config;
     this._entityId = config.entity || "sensor.matter_saver_activity_log";
+    this._title = config.title || "Activity Log";
+    this._filter = (config.filter || "").toLowerCase();
+    this._showSearch = config.show_search !== false;
+    this._maxEntries = Number.isFinite(Number(config.max_entries)) && Number(config.max_entries) > 0
+      ? Number(config.max_entries)
+      : null;
+    if (this._initialized && this._hass) {
+      this._fullRender();
+    }
   }
 
   set hass(hass) {
@@ -16,7 +25,7 @@ class MatterSaverLogCard extends HTMLElement {
     const state = hass.states[this._entityId];
     const dataJson = state ? JSON.stringify(state.attributes) : "";
 
-    if (!this._initialized) {
+    if (!this._initialized || !this.querySelector("#ml-entries")) {
       this._fullRender();
       this._initialized = true;
     } else if (dataJson !== this._lastDataJson) {
@@ -75,20 +84,23 @@ class MatterSaverLogCard extends HTMLElement {
           .ml-empty { text-align: center; padding: 40px 0; color: var(--secondary-text-color, #999); }
         </style>
         <div class="ml-header">
-          <span class="ml-title">Activity Log</span>
+          <span class="ml-title">${this._escHtml(this._title)}</span>
           <span class="ml-count" id="ml-count"></span>
         </div>
-        <div class="ml-search-wrap">
-          <input type="text" class="ml-search" id="ml-search" placeholder="Filter log..." />
-        </div>
+        ${this._showSearch ? `<div class="ml-search-wrap">
+          <input type="text" class="ml-search" id="ml-search" placeholder="${this._escHtml(this._t("filterLogPlaceholder"))}" value="${this._escHtml(this.config.filter || "")}" />
+        </div>` : ""}
         <div class="ml-entries" id="ml-entries"></div>
       </ha-card>
     `;
 
-    this.querySelector("#ml-search").addEventListener("input", (e) => {
-      this._filter = e.target.value.toLowerCase();
-      this._updateLog();
-    });
+    const searchInput = this.querySelector("#ml-search");
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        this._filter = e.target.value.toLowerCase();
+        this._updateLog();
+      });
+    }
 
     this._updateLog();
   }
@@ -106,14 +118,18 @@ class MatterSaverLogCard extends HTMLElement {
       });
     }
 
+    if (this._maxEntries) {
+      entries = entries.slice(0, this._maxEntries);
+    }
+
     const countEl = this.querySelector("#ml-count");
-    if (countEl) countEl.textContent = `${entries.length} Einträge`;
+    if (countEl) countEl.textContent = this._formatCount(entries.length);
 
     const container = this.querySelector("#ml-entries");
     if (!container) return;
 
     if (entries.length === 0) {
-      container.innerHTML = `<div class="ml-empty">Noch keine Aktivitäten</div>`;
+      container.innerHTML = `<div class="ml-empty">${this._escHtml(this._t("noActivities"))}</div>`;
       return;
     }
 
@@ -130,8 +146,8 @@ class MatterSaverLogCard extends HTMLElement {
 
     for (const e of entries) {
       const ts = new Date(e.timestamp);
-      const dateStr = ts.toLocaleDateString("de-CH");
-      const timeStr = ts.toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      const dateStr = this._formatDate(ts, { year: "numeric", month: "2-digit", day: "2-digit" });
+      const timeStr = this._formatDate(ts, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       const relTime = this._relativeTime(ts);
 
       // Date separator
@@ -147,10 +163,10 @@ class MatterSaverLogCard extends HTMLElement {
         <div class="ml-icon ${level}">${icon}</div>
         <div class="ml-body">
           <div class="ml-top">
-            <span><span class="ml-name">${this._escHtml(e.name)}</span> <span class="ml-node">Node ${e.node_id || "?"}</span></span>
+            <span><span class="ml-name">${this._escHtml(e.name)}</span> <span class="ml-node">${this._t("node")} ${e.node_id || "?"}</span></span>
             <span class="ml-time" title="${timeStr}">${relTime}</span>
           </div>
-          <div class="ml-msg ${level}">${this._escHtml(e.message)}</div>
+          <div class="ml-msg ${level}">${this._escHtml(this._localizeLogMessage(e))}</div>
         </div>
       </div>`;
     }
@@ -159,18 +175,50 @@ class MatterSaverLogCard extends HTMLElement {
   }
 
   _relativeTime(date) {
-    const now = new Date();
-    const diffMin = Math.floor((now - date) / 60000);
-    if (diffMin < 1) return "gerade eben";
-    if (diffMin < 60) return `vor ${diffMin}m`;
-    if (diffMin < 1440) return `vor ${Math.floor(diffMin / 60)}h`;
-    return `vor ${Math.floor(diffMin / 1440)}d`;
+    return window.MatterSaverCardUtils?.formatRelativeTime(this._hass, date) || "";
+  }
+
+  _formatDate(date, options) {
+    return window.MatterSaverCardUtils?.formatDate(this._hass, date, options) || "";
+  }
+
+  _formatCount(count) {
+    return window.MatterSaverCardUtils?.formatCountLabel(this._hass, count) || `${count}`;
+  }
+
+  _localizeLogMessage(entry) {
+    return window.MatterSaverCardUtils?.localizeLogMessage(this._hass, entry) || entry?.message || "";
+  }
+
+  _t(key, vars) {
+    return window.MatterSaverCardUtils?.t(this._hass, key, vars) || key;
   }
 
   _escHtml(str) {
     const div = document.createElement("div");
     div.textContent = str || "";
     return div.innerHTML;
+  }
+
+  static async getConfigElement() {
+    const editor = document.createElement("matter-saver-card-editor");
+    editor.cardType = "matter-saver-log-card";
+    return editor;
+  }
+
+  static getStubConfig() {
+    return {
+      type: window.MatterSaverCardEditor?.buildCardType("matter-saver-log-card") || "custom:matter-saver-log-card",
+      entity: "sensor.matter_saver_activity_log",
+    };
+  }
+
+  getGridOptions() {
+    return {
+      columns: 12,
+      rows: 6,
+      min_columns: 6,
+    };
   }
 
   getCardSize() { return 6; }
@@ -182,4 +230,6 @@ window.customCards.push({
   type: "matter-saver-log-card",
   name: "Matter Saver Log Card",
   description: "Activity log for Matter Saver",
+  preview: true,
+  documentationURL: "https://github.com/hellosamblack/matter-saver",
 });

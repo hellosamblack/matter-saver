@@ -33,14 +33,51 @@ PLATFORMS = ["sensor", "update"]
 LOVELACE_CARD_FILENAMES = (
     "matter-saver-card-utils.js",
     "matter-saver-device-data.js",
+    "matter-saver-card-editor.js",
     "matter-saver-card.js",
     "matter-saver-log-card.js",
     "matter-saver-topology-card.js",
     "matter-saver-mesh-card.js",
 )
 LOVELACE_RESOURCE_KEY = "lovelace_resources_registered"
+UPDATE_ICON_URL = f"/api/{DOMAIN}/icon.png"
 
 type MatterSaverConfigEntry = ConfigEntry[MatterSaverCoordinator]
+
+ERROR_COMMENT_LABELS_EN = {
+    "thread_noise_severe": "severe channel interference",
+    "thread_noise_moderate": "channel interference",
+    "tx_abort_severe": "many aborted transmissions",
+    "tx_abort_moderate": "aborted transmissions",
+    "rx_no_frame_severe": "reception problems",
+    "rx_no_frame_moderate": "minor reception problems",
+    "rx_unknown_neighbors": "unknown neighbors",
+    "rx_invalid_source": "invalid sources",
+    "tx_retry_severe": "very poor connection",
+    "tx_retry_moderate": "poor connection",
+}
+
+ACTION_LABELS_EN = {
+    "ping": "Ping",
+    "interview": "Re-Interview",
+    "reset": "Reset Counters",
+}
+
+
+def _render_error_comment_en(codes: list[str]) -> str:
+    """Render an English fallback error comment from diagnostic codes."""
+    return ", ".join(
+        ERROR_COMMENT_LABELS_EN[code]
+        for code in codes
+        if code in ERROR_COMMENT_LABELS_EN
+    )
+
+
+def _action_label_en(action: str | None) -> str:
+    """Return the English action label for log entries."""
+    if not action:
+        return "Action"
+    return ACTION_LABELS_EN.get(action, action.replace("_", " ").title())
 
 
 class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -57,7 +94,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.url = url
         self._last_seen: dict[int, str] = {}  # node_id -> ISO timestamp
         self._previous_status: dict[int, bool] = {}  # node_id -> available
-        self._previous_problem: dict[int, str] = {}  # node_id -> error_comment
+        self._previous_problem: dict[int, tuple[str, ...]] = {}
         self.activity_log: list[dict[str, Any]] = []
         self.max_log_entries = 200
         self._store = Store(hass, 1, f"{DOMAIN}_data")
@@ -91,8 +128,14 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "auto_recovery": self.auto_recovery_enabled,
         })
 
-    def add_log(self, level: str, node_id: int | None, name: str,
-                message: str) -> None:
+    def add_log(
+        self,
+        level: str,
+        node_id: int | None,
+        name: str,
+        message: str,
+        **extra: Any,
+    ) -> None:
         """Add an entry to the activity log."""
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -101,6 +144,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "name": name,
             "message": message,
         }
+        entry.update(extra)
         self.activity_log.insert(0, entry)
         if len(self.activity_log) > self.max_log_entries:
             self.activity_log = self.activity_log[:self.max_log_entries]
@@ -144,21 +188,45 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "ping_node", {"node_id": nid}
                     )
                     if isinstance(result, dict) and "error" in result:
-                        self.add_log("action", nid, name,
-                                     f"Auto-Recovery: Ping fehlgeschlagen")
+                        self.add_log(
+                            "action",
+                            nid,
+                            name,
+                            "Auto-Recovery: ping failed",
+                            message_key="auto_recovery_ping_failed",
+                            action="ping",
+                        )
                         continue
-                    self.add_log("action", nid, name,
-                                 "Auto-Recovery: Ping OK, starte Re-Interview")
+                    self.add_log(
+                        "action",
+                        nid,
+                        name,
+                        "Auto-Recovery: ping ok, starting re-interview",
+                        message_key="auto_recovery_ping_ok",
+                        action="interview",
+                    )
                     # Ping worked, try interview
                     result = await self.send_matter_command(
                         "interview_node", {"node_id": nid}
                     )
                     if isinstance(result, dict) and "error" in result:
-                        self.add_log("error", nid, name,
-                                     f"Auto-Recovery: Re-Interview fehlgeschlagen")
+                        self.add_log(
+                            "error",
+                            nid,
+                            name,
+                            "Auto-Recovery: re-interview failed",
+                            message_key="auto_recovery_interview_failed",
+                            action="interview",
+                        )
                     else:
-                        self.add_log("success", nid, name,
-                                     "Auto-Recovery: Re-Interview erfolgreich")
+                        self.add_log(
+                            "success",
+                            nid,
+                            name,
+                            "Auto-Recovery: re-interview succeeded",
+                            message_key="auto_recovery_interview_succeeded",
+                            action="interview",
+                        )
                         await self.async_request_refresh()
                 except Exception:
                     pass  # Don't crash the loop
@@ -178,12 +246,18 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             available = node["available"]
             name = node.get("device_name") or f"Node {nid}"
             prev = self._previous_status.get(nid)
-            problem = node.get("error_comment", "")
+            problem_codes = tuple(node.get("error_comment_codes", []))
             prev_problem = self._previous_problem.get(nid)
 
             if prev is not None and prev != available:
                 if available:
-                    self.add_log("info", nid, name, "online")
+                    self.add_log(
+                        "info",
+                        nid,
+                        name,
+                        "online",
+                        message_key="node_online",
+                    )
                     # Close open offline period
                     if nid in self.offline_history:
                         for period in self.offline_history[nid]:
@@ -194,7 +268,13 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 period["duration_min"] = int((end - start).total_seconds() / 60)
                                 break
                 else:
-                    self.add_log("warning", nid, name, "offline")
+                    self.add_log(
+                        "warning",
+                        nid,
+                        name,
+                        "offline",
+                        message_key="node_offline",
+                    )
                     # Start new offline period
                     if nid not in self.offline_history:
                         self.offline_history[nid] = []
@@ -204,16 +284,37 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # Keep max 50 entries per node
                     self.offline_history[nid] = self.offline_history[nid][:50]
 
-            if prev_problem is not None and prev_problem != problem:
-                if prev_problem == "" and problem != "":
-                    self.add_log("warning", nid, name, f"problem detected: {problem}")
-                elif prev_problem != "" and problem == "":
-                    self.add_log("success", nid, name, "problem cleared")
-                elif prev_problem != "" and problem != "":
-                    self.add_log("warning", nid, name, f"problem updated: {problem}")
+            if prev_problem is not None and prev_problem != problem_codes:
+                problem_text = _render_error_comment_en(list(problem_codes))
+                if not prev_problem and problem_codes:
+                    self.add_log(
+                        "warning",
+                        nid,
+                        name,
+                        f"problem detected: {problem_text}",
+                        message_key="problem_detected",
+                        problem_codes=list(problem_codes),
+                    )
+                elif prev_problem and not problem_codes:
+                    self.add_log(
+                        "success",
+                        nid,
+                        name,
+                        "problem cleared",
+                        message_key="problem_cleared",
+                    )
+                elif prev_problem and problem_codes:
+                    self.add_log(
+                        "warning",
+                        nid,
+                        name,
+                        f"problem updated: {problem_text}",
+                        message_key="problem_updated",
+                        problem_codes=list(problem_codes),
+                    )
 
             self._previous_status[nid] = available
-            self._previous_problem[nid] = problem
+            self._previous_problem[nid] = problem_codes
 
         # Build offline stats per node
         for node in data.get("nodes", []):
@@ -304,7 +405,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "update_available": False,
                 "thread_role": "unknown",
                 "neighbors": 0, "children": 0,
-                "errors": 0, "error_comment": "",
+                "errors": 0,
+                "error_comment": "",
+                "error_comment_codes": [],
                 "battery_percent": None, "power_source": "unknown",
                 "parent_node_id": None, "parent_name": "",
                 "route_path": [], "last_seen": self._last_seen.get(node_id, ""),
@@ -450,28 +553,29 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             node_info["tx_retries"] = tx_retry
 
             # Build error comment
-            comments = []
+            comment_codes = []
             if tx_err_cca > 10000:
-                comments.append("starke Kanalstörungen")
+                comment_codes.append("thread_noise_severe")
             elif tx_err_cca > 1000:
-                comments.append("Kanalstörungen")
+                comment_codes.append("thread_noise_moderate")
             if tx_err_abort > 10000:
-                comments.append("viele Sendeabbrüche")
+                comment_codes.append("tx_abort_severe")
             elif tx_err_abort > 1000:
-                comments.append("Sendeabbrüche")
+                comment_codes.append("tx_abort_moderate")
             if rx_err_no_frame > 10000:
-                comments.append("Empfangsprobleme")
+                comment_codes.append("rx_no_frame_severe")
             elif rx_err_no_frame > 1000:
-                comments.append("leichte Empfangsprobleme")
+                comment_codes.append("rx_no_frame_moderate")
             if rx_err_unknown > 1000:
-                comments.append("unbekannte Nachbarn")
+                comment_codes.append("rx_unknown_neighbors")
             if rx_err_invalid > 1000:
-                comments.append("ungültige Quellen")
+                comment_codes.append("rx_invalid_source")
             if tx_retry > 100000:
-                comments.append("sehr schlechte Verbindung")
+                comment_codes.append("tx_retry_severe")
             elif tx_retry > 10000:
-                comments.append("schlechte Verbindung")
-            node_info["error_comment"] = ", ".join(comments) if comments else ""
+                comment_codes.append("tx_retry_moderate")
+            node_info["error_comment_codes"] = comment_codes
+            node_info["error_comment"] = _render_error_comment_en(comment_codes)
 
             # Try to get battery level (cluster 47, attr 12)
             battery_percent = self._get_matter_attr(attributes, 47, 12, None)
@@ -748,9 +852,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     return data
                 return {"error": f"Unexpected message type: {msg.type}"}
         except asyncio.TimeoutError:
-            return {"error": "Timeout - Gerät antwortet nicht"}
+            return {"error": "Timeout - device did not respond"}
         except (aiohttp.ClientError, ConnectionError) as err:
-            return {"error": f"Verbindungsfehler: {err}"}
+            return {"error": f"Connection error: {err}"}
         finally:
             await session.close()
 
@@ -788,6 +892,7 @@ async def _async_register_lovelace_resources(hass: HomeAssistant) -> None:
     static_paths: list[StaticPathConfig] = []
     resource_urls: list[str] = []
     cards_path = Path(__file__).parent / "www"
+    brand_icon_path = Path(__file__).parent / "brand" / "icon.png"
 
     for filename in LOVELACE_CARD_FILENAMES:
         asset_path = cards_path / filename
@@ -801,6 +906,17 @@ async def _async_register_lovelace_resources(hass: HomeAssistant) -> None:
             StaticPathConfig(url, str(asset_path), cache_headers=True)
         )
         resource_urls.append(f"{url}?v={version}")
+
+    if brand_icon_path.is_file():
+        static_paths.append(
+            StaticPathConfig(
+                UPDATE_ICON_URL,
+                str(brand_icon_path),
+                cache_headers=True,
+            )
+        )
+    else:
+        _LOGGER.warning("Missing Matter Saver brand icon: %s", brand_icon_path)
 
     if static_paths:
         await hass.http.async_register_static_paths(static_paths)
@@ -830,41 +946,69 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
         return f"Node {nid}"
 
     async def _run_action(
-        node_id: int, action_name: str, command: str,
-        args: dict[str, Any], success_msg: str,
+        node_id: int,
+        action: str,
+        command: str,
+        args: dict[str, Any],
     ) -> dict[str, Any]:
         """Run a Matter command with logging and error propagation."""
         from homeassistant.exceptions import HomeAssistantError
         name = _node_name(node_id)
-        coordinator.add_log("action", node_id, name, f"{action_name} gestartet")
+        action_label = _action_label_en(action)
+        coordinator.add_log(
+            "action",
+            node_id,
+            name,
+            f"{action_label} started",
+            message_key="action_started",
+            action=action,
+        )
         result = await coordinator.send_matter_command(command, args)
         if isinstance(result, dict) and "error" in result:
             error_msg = result["error"]
-            coordinator.add_log("error", node_id, name, f"{action_name} fehlgeschlagen: {error_msg}")
-            raise HomeAssistantError(f"{action_name} fehlgeschlagen: {error_msg}")
-        coordinator.add_log("success", node_id, name, success_msg)
+            coordinator.add_log(
+                "error",
+                node_id,
+                name,
+                f"{action_label} failed: {error_msg}",
+                message_key="action_failed",
+                action=action,
+                error=error_msg,
+            )
+            raise HomeAssistantError(f"{action_label} failed: {error_msg}")
+        coordinator.add_log(
+            "success",
+            node_id,
+            name,
+            f"{action_label} succeeded",
+            message_key="action_succeeded",
+            action=action,
+        )
         return result
 
     async def handle_ping_node(call: ServiceCall) -> None:
         """Ping a Matter node."""
         node_id = call.data["node_id"]
-        await _run_action(node_id, "Ping", "ping_node",
-                          {"node_id": node_id}, "Ping erfolgreich")
+        await _run_action(node_id, "ping", "ping_node", {"node_id": node_id})
 
     async def handle_interview_node(call: ServiceCall) -> None:
         """Re-interview a Matter node."""
         node_id = call.data["node_id"]
-        await _run_action(node_id, "Re-Interview", "interview_node",
-                          {"node_id": node_id}, "Re-Interview erfolgreich")
+        await _run_action(
+            node_id,
+            "interview",
+            "interview_node",
+            {"node_id": node_id},
+        )
         await coordinator.async_request_refresh()
 
     async def handle_reset_counters(call: ServiceCall) -> None:
         """Reset Thread diagnostic counters for a node."""
         node_id = call.data["node_id"]
-        result = await _run_action(node_id, "Error Counter Reset", "send_command", {
+        result = await _run_action(node_id, "reset", "send_command", {
             "node_id": node_id, "endpoint_id": 0,
             "cluster_id": 53, "command_name": "ResetCounts", "payload": {},
-        }, "Error Counter zurückgesetzt")
+        })
         await coordinator.async_request_refresh()
         hass.bus.async_fire(f"{DOMAIN}_action_result", {
             "action": "reset_counters", "node_id": node_id,

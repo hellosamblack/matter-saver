@@ -67,6 +67,7 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
         ("p", node.get("product_name")),
         ("f", node.get("software_version_string")),
         ("m", node.get("error_comment")),
+        ("mc", node.get("error_comment_codes")),
         ("pn", node.get("parent_name")),
         ("ls", node.get("last_seen")),
     )

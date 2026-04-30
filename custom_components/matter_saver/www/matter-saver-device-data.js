@@ -43,6 +43,7 @@
       children: device.ch ?? 0,
       errors: device.e ?? 0,
       error_comment: device.m || "",
+      error_comment_codes: Array.isArray(device.mc) ? device.mc : [],
       parent: device.pn || "",
       parent_node_id: device.pi ?? null,
       route_path: [],

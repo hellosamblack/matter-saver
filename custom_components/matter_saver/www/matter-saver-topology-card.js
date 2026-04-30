@@ -9,13 +9,19 @@ class MatterSaverTopologyCard extends HTMLElement {
   setConfig(config) {
     this.config = config;
     this._entityId = config.entity || "sensor.matter_saver_devices";
+    this._title = config.title || "Thread Topology";
+    this._showStats = config.show_stats !== false;
+    this._showUnassigned = config.show_unassigned !== false;
+    if (this._initialized && this._hass) {
+      this._fullRender();
+    }
   }
 
   set hass(hass) {
     this._hass = hass;
     const state = hass.states[this._entityId];
     const dataJson = state ? JSON.stringify(state.attributes) : "";
-    if (!this._initialized) {
+    if (!this._initialized || !this.querySelector("#mt-content")) {
       this._fullRender();
       this._initialized = true;
     } else if (dataJson !== this._lastDataJson) {
@@ -75,7 +81,7 @@ class MatterSaverTopologyCard extends HTMLElement {
           .mt-unassigned-title { font-size: 0.85em; font-weight: 600; color: var(--secondary-text-color, #999); padding: 8px 0; }
         </style>
         <div class="mt-header">
-          <span class="mt-title">Thread Topology</span>
+          <span class="mt-title">${this._esc(this._title)}</span>
         </div>
         <div class="mt-stats" id="mt-stats"></div>
         <div class="mt-content" id="mt-content"></div>
@@ -97,16 +103,18 @@ class MatterSaverTopologyCard extends HTMLElement {
     if (statsEl) {
       if (this._deviceDataError) {
         statsEl.textContent = this._deviceDataError;
+      } else if (!this._showStats) {
+        statsEl.textContent = "";
       } else {
       const leaderCount = routers.filter(d => d.thread_role === "leader").length;
       const routerCount = routers.filter(d => d.thread_role === "router").length;
       const reedCount = routers.filter(d => d.thread_role === "reed").length;
       const sedCount = endDevices.length;
       statsEl.innerHTML = `
-        <span><span class="mt-stat-value">${leaderCount}</span> Leader</span>
-        <span><span class="mt-stat-value">${routerCount}</span> Router</span>
-        <span><span class="mt-stat-value">${reedCount}</span> REED</span>
-        <span><span class="mt-stat-value">${sedCount}</span> End Devices</span>
+        <span><span class="mt-stat-value">${leaderCount}</span> ${this._threadRoleLabel("leader")}</span>
+        <span><span class="mt-stat-value">${routerCount}</span> ${this._threadRoleLabel("router")}</span>
+        <span><span class="mt-stat-value">${reedCount}</span> ${this._threadRoleLabel("reed")}</span>
+        <span><span class="mt-stat-value">${sedCount}</span> ${this._t("endDevices")}</span>
       `;
       }
     }
@@ -143,7 +151,7 @@ class MatterSaverTopologyCard extends HTMLElement {
     for (const router of sortedRouters) {
       const children = childrenMap[router.node_id] || [];
       const roleClass = router.thread_role === "leader" ? "mt-role-leader" : router.thread_role === "reed" ? "mt-role-reed" : "mt-role-router";
-      const roleLabel = router.thread_role === "leader" ? "Leader" : router.thread_role === "reed" ? "REED" : "Router";
+      const roleLabel = this._threadRoleLabel(router.thread_role);
       const statusDot = router.status === "online"
         ? '<span class="mt-child-indicator online"></span>'
         : '<span class="mt-child-indicator offline"></span>';
@@ -153,16 +161,16 @@ class MatterSaverTopologyCard extends HTMLElement {
           <span class="mt-router-name">${statusDot} ${this._esc(router.name)}</span>
           <div class="mt-router-meta">
             <span class="mt-router-role ${roleClass}">${roleLabel}</span>
-            <span>Node ${router.node_id}</span>
-            <span>${router.neighbors || 0} neighbors</span>
-            <span>${children.length} children</span>
+            <span>${this._t("node")} ${router.node_id}</span>
+            <span>${router.neighbors || 0} ${this._t("neighbors").toLowerCase()}</span>
+            <span>${children.length} ${this._t("children").toLowerCase()}</span>
             ${router.area ? `<span>${this._esc(router.area)}</span>` : ""}
           </div>
         </div>
         <div class="mt-children">`;
 
       if (children.length === 0) {
-        html += `<div class="mt-no-children">Keine End Devices angebunden</div>`;
+        html += `<div class="mt-no-children">${this._esc(this._t("noEndDevicesAttached"))}</div>`;
       } else {
         for (const child of children) {
           const cDot = child.status === "online"
@@ -184,9 +192,9 @@ class MatterSaverTopologyCard extends HTMLElement {
     }
 
     // Unassigned end devices
-    if (unassigned.length > 0) {
+    if (this._showUnassigned && unassigned.length > 0) {
       html += `<div class="mt-unassigned">
-        <div class="mt-unassigned-title">Nicht zugeordnete End Devices</div>`;
+        <div class="mt-unassigned-title">${this._esc(this._t("unassignedEndDevices"))}</div>`;
       for (const d of unassigned) {
         const dot = d.status === "online"
           ? '<span class="mt-child-indicator online"></span>'
@@ -209,15 +217,44 @@ class MatterSaverTopologyCard extends HTMLElement {
   }
 
   _getDevices(state) {
-    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-topology-card");
+    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-topology-card", this._hass);
     if (result) {
       this._deviceDataError = result.error;
       return result.devices;
     }
 
-    this._deviceDataError = "Shared device decoder unavailable.";
+    this._deviceDataError = this._t("sharedDeviceDecoderUnavailable");
     console.warn("matter-saver-topology-card: shared card utilities unavailable; returning no devices to avoid mis-rendering.");
     return [];
+  }
+
+  _threadRoleLabel(role) {
+    return window.MatterSaverCardUtils?.roleLabel(this._hass, role) || role || this._t("unknown");
+  }
+
+  _t(key, vars) {
+    return window.MatterSaverCardUtils?.t(this._hass, key, vars) || key;
+  }
+
+  static async getConfigElement() {
+    const editor = document.createElement("matter-saver-card-editor");
+    editor.cardType = "matter-saver-topology-card";
+    return editor;
+  }
+
+  static getStubConfig() {
+    return {
+      type: window.MatterSaverCardEditor?.buildCardType("matter-saver-topology-card") || "custom:matter-saver-topology-card",
+      entity: "sensor.matter_saver_devices",
+    };
+  }
+
+  getGridOptions() {
+    return {
+      columns: 12,
+      rows: 8,
+      min_columns: 6,
+    };
   }
 
   getCardSize() { return 8; }
@@ -229,4 +266,6 @@ window.customCards.push({
   type: "matter-saver-topology-card",
   name: "Matter Saver Topology Card",
   description: "Thread mesh topology - routers and their children",
+  preview: true,
+  documentationURL: "https://github.com/hellosamblack/matter-saver",
 });

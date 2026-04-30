@@ -20,13 +20,21 @@ class MatterSaverMeshCard extends HTMLElement {
   setConfig(config) {
     this.config = config;
     this._entityId = config.entity || "sensor.matter_saver_devices";
+    this._title = config.title || "Thread Mesh";
+    this._showLegend = config.show_legend !== false;
+    this._graphHeight = Number.isFinite(Number(config.height)) && Number(config.height) >= 320
+      ? Number(config.height)
+      : null;
+    if (this._initialized && this._hass) {
+      this._fullRender();
+    }
   }
 
   set hass(hass) {
     this._hass = hass;
     const state = hass.states[this._entityId];
     const dataJson = state ? JSON.stringify(state.attributes) : "";
-    if (!this._initialized) {
+    if (!this._initialized || !this.querySelector("#mm-svg")) {
       this._fullRender();
       this._initialized = true;
     } else if (dataJson !== this._lastDataJson) {
@@ -71,23 +79,23 @@ class MatterSaverMeshCard extends HTMLElement {
           .mm-tooltip-detail { color: var(--secondary-text-color, #999); line-height: 1.4; }
         </style>
         <div class="mm-header">
-          <span class="mm-title">Thread Mesh</span>
+          <span class="mm-title">${this._esc(this._title)}</span>
           <div class="mm-controls">
             <button class="mm-btn" id="mm-zoom-in">+</button>
             <button class="mm-btn" id="mm-zoom-out">-</button>
-            <button class="mm-btn" id="mm-reset">Reset</button>
+            <button class="mm-btn" id="mm-reset">${this._esc(this._t("reset"))}</button>
           </div>
         </div>
-        <div class="mm-legend">
-          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#ffb300"></span> Leader</span>
-          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#4caf50"></span> Router</span>
-          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#8bc34a"></span> REED</span>
-          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#78909c"></span> End Device</span>
-          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#03a9f4"></span> Home Assistant</span>
-          <span class="mm-legend-item"><span style="width:20px;height:2px;background:#4caf50;display:inline-block"></span> Parent</span>
-          <span class="mm-legend-item"><span style="width:20px;height:1px;background:rgba(255,255,255,0.15);display:inline-block"></span> Neighbor</span>
-        </div>
-        <div class="mm-svg-wrap" id="mm-wrap">
+        ${this._showLegend ? `<div class="mm-legend">
+          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#ffb300"></span> ${this._threadRoleLabel("leader")}</span>
+          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#4caf50"></span> ${this._threadRoleLabel("router")}</span>
+          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#8bc34a"></span> ${this._threadRoleLabel("reed")}</span>
+          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#78909c"></span> ${this._threadRoleLabel("end_device")}</span>
+          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#03a9f4"></span> ${this._t("homeAssistant")}</span>
+          <span class="mm-legend-item"><span style="width:20px;height:2px;background:#4caf50;display:inline-block"></span> ${this._t("parentLegend")}</span>
+          <span class="mm-legend-item"><span style="width:20px;height:1px;background:rgba(255,255,255,0.15);display:inline-block"></span> ${this._t("neighborLegend")}</span>
+        </div>` : ""}
+        <div class="mm-svg-wrap" id="mm-wrap" style="height:${this._graphHeight ? `${this._graphHeight}px` : "calc(100vh - 180px)"};min-height:${this._graphHeight ? `${this._graphHeight}px` : "400px"}">
           <svg class="mm-svg" id="mm-svg"></svg>
           <div class="mm-tooltip" id="mm-tooltip">
             <div class="mm-tooltip-name" id="mm-tt-name"></div>
@@ -261,13 +269,13 @@ class MatterSaverMeshCard extends HTMLElement {
   }
 
   _getDevices(state) {
-    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-mesh-card");
+    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-mesh-card", this._hass);
     if (result) {
       this._deviceDataError = result.error;
       return result.devices;
     }
 
-    this._deviceDataError = "Shared device decoder unavailable.";
+    this._deviceDataError = this._t("sharedDeviceDecoderUnavailable");
     console.warn("matter-saver-mesh-card: shared card utilities unavailable; returning no devices to avoid mis-rendering.");
     return [];
   }
@@ -355,14 +363,14 @@ class MatterSaverMeshCard extends HTMLElement {
     if (!tt) return;
 
     nameEl.textContent = node.name;
-    let detail = `Node ${node.id} | ${this._roleLabel(node.role)}`;
+    let detail = `${this._t("node")} ${node.id} | ${this._roleLabel(node.role)}`;
     if (node.area) detail += `\n${node.area}`;
     if (node.product) detail += `\n${node.product}`;
-    if (node.neighbors) detail += `\n${node.neighbors} neighbors`;
-    if (node.children) detail += `, ${node.children} children`;
-    if (node.battery != null) detail += `\nBatterie: ${Math.round(node.battery)}%`;
+    if (node.neighbors) detail += `\n${node.neighbors} ${this._t("neighbors").toLowerCase()}`;
+    if (node.children) detail += `, ${node.children} ${this._t("children").toLowerCase()}`;
+    if (node.battery != null) detail += `\n${this._t("batteryLabel", { value: Math.round(node.battery) })}`;
     if (node.errors > 0) detail += `\nErrors: ${node.errors.toLocaleString()}`;
-    if (node.status === "offline") detail += `\nOFFLINE`;
+    if (node.status === "offline") detail += `\n${this._t("offlineBadge")}`;
     detailEl.textContent = detail;
 
     const wrap = this.querySelector("#mm-wrap");
@@ -378,11 +386,42 @@ class MatterSaverMeshCard extends HTMLElement {
   }
 
   _roleLabel(role) {
-    return {"leader":"Leader","router":"Router","reed":"REED","sed":"Sleepy End Device","end_device":"End Device","ha":"Home Assistant"}[role] || role;
+    return role === "ha"
+      ? this._t("homeAssistant")
+      : this._threadRoleLabel(role);
+  }
+
+  _threadRoleLabel(role) {
+    return window.MatterSaverCardUtils?.roleLabel(this._hass, role) || role || this._t("unknown");
+  }
+
+  _t(key, vars) {
+    return window.MatterSaverCardUtils?.t(this._hass, key, vars) || key;
   }
 
   _esc(str) {
     return (str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  static async getConfigElement() {
+    const editor = document.createElement("matter-saver-card-editor");
+    editor.cardType = "matter-saver-mesh-card";
+    return editor;
+  }
+
+  static getStubConfig() {
+    return {
+      type: window.MatterSaverCardEditor?.buildCardType("matter-saver-mesh-card") || "custom:matter-saver-mesh-card",
+      entity: "sensor.matter_saver_devices",
+    };
+  }
+
+  getGridOptions() {
+    return {
+      columns: 12,
+      rows: 10,
+      min_columns: 6,
+    };
   }
 
   getCardSize() { return 8; }
@@ -394,4 +433,6 @@ window.customCards.push({
   type: "matter-saver-mesh-card",
   name: "Matter Saver Mesh Card",
   description: "Interactive Thread mesh network visualization",
+  preview: true,
+  documentationURL: "https://github.com/hellosamblack/matter-saver",
 });
