@@ -274,7 +274,7 @@ class MatterSaverMeshCard extends HTMLElement {
       name: device.n || `Node ${device.i}`,
       area: device.a || "",
       product: device.p || "",
-      status: device.v === false ? "offline" : "online",
+      status: device.av === false ? "offline" : "online",
       thread_role: this._normalizeRole(device.r),
       neighbors: device.k ?? 0,
       children: device.c ?? 0,

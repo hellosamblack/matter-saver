@@ -58,7 +58,7 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
     encoded: dict[str, Any] = {
         "i": node["node_id"],
         "n": _node_name(node),
-        "v": node.get("available", False),
+        "av": node.get("available", False),
         "r": ROLE_TO_CODE.get(node.get("thread_role", "unknown"), "u"),
     }
 

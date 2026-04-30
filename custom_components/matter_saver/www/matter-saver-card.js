@@ -561,7 +561,7 @@ class MatterSaverCard extends HTMLElement {
       name: device.n || `Node ${device.i}`,
       area: device.a || "",
       product: device.p || "",
-      status: device.v === false ? "offline" : "online",
+      status: device.av === false ? "offline" : "online",
       power: this._normalizePower(device.w),
       firmware: device.f || "",
       update_available: Boolean(device.u),
@@ -585,7 +585,7 @@ class MatterSaverCard extends HTMLElement {
   _normalizeRouteHop(hop, byId) {
     if (hop && ("name" in hop || "role" in hop)) return hop;
     const nodeId = hop ? hop.i : null;
-    if (nodeId == null) {
+    if (nodeId === null || nodeId === undefined) {
       return { node_id: null, name: "Home Assistant", role: "ha", rssi: null, lqi: null };
     }
 
