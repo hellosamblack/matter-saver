@@ -2,6 +2,8 @@
 
 Custom Component for Home Assistant to monitor and manage Matter/Thread devices.
 
+This fork maintains the integration at `https://github.com/hellosamblack/matter-saver` and focuses on keeping the packaged Lovelace cards and installation flow working reliably for HACS and manual installs.
+
 ## Features
 
 - **Device Overview** - All Matter devices in one sortable, filterable table
@@ -34,7 +36,7 @@ Custom Component for Home Assistant to monitor and manage Matter/Thread devices.
 
 1. Open HACS in Home Assistant
 2. Click the three dots menu → **Custom repositories**
-3. Add `https://github.com/cnc-lasercraft/matter-saver` as **Integration**
+3. Add `https://github.com/hellosamblack/matter-saver` as **Integration**
 4. Search for "Matter Saver" and install
 5. Restart Home Assistant
 6. Go to **Settings → Integrations → Add Integration → Matter Saver**

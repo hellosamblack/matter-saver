@@ -782,17 +782,17 @@ async def _async_register_lovelace_resources(hass: HomeAssistant) -> None:
             continue
 
         url = f"/api/{DOMAIN}/{filename}"
+        version = str(asset_path.stat().st_mtime_ns)
         static_paths.append(
-            StaticPathConfig(url, str(asset_path), cache_headers=False)
+            StaticPathConfig(url, str(asset_path), cache_headers=True)
         )
-        resource_urls.append(url)
+        resource_urls.append(f"{url}?v={version}")
 
     if static_paths:
         await hass.http.async_register_static_paths(static_paths)
         for url in resource_urls:
             add_extra_js_url(hass, url)
-
-    domain_data[LOVELACE_RESOURCE_KEY] = True
+        domain_data[LOVELACE_RESOURCE_KEY] = True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) -> bool:
