@@ -832,7 +832,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
     async def _run_action(
         node_id: int, action_name: str, command: str,
         args: dict[str, Any], success_msg: str,
-    ) -> None:
+    ) -> dict[str, Any]:
         """Run a Matter command with logging and error propagation."""
         from homeassistant.exceptions import HomeAssistantError
         name = _node_name(node_id)
@@ -843,6 +843,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
             coordinator.add_log("error", node_id, name, f"{action_name} fehlgeschlagen: {error_msg}")
             raise HomeAssistantError(f"{action_name} fehlgeschlagen: {error_msg}")
         coordinator.add_log("success", node_id, name, success_msg)
+        return result
 
     async def handle_ping_node(call: ServiceCall) -> None:
         """Ping a Matter node."""
@@ -860,7 +861,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
     async def handle_reset_counters(call: ServiceCall) -> None:
         """Reset Thread diagnostic counters for a node."""
         node_id = call.data["node_id"]
-        await _run_action(node_id, "Error Counter Reset", "send_command", {
+        result = await _run_action(node_id, "Error Counter Reset", "send_command", {
             "node_id": node_id, "endpoint_id": 0,
             "cluster_id": 53, "command_name": "ResetCounts", "payload": {},
         }, "Error Counter zurückgesetzt")
