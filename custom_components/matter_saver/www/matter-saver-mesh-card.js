@@ -261,32 +261,15 @@ class MatterSaverMeshCard extends HTMLElement {
   }
 
   _getDevices(state) {
-    const normalized = window.MatterSaverDeviceData?.normalizeDevices(state);
-    if (Array.isArray(normalized)) {
-      this._deviceDataError = "";
-      return normalized;
+    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-mesh-card");
+    if (result) {
+      this._deviceDataError = result.error;
+      return result.devices;
     }
 
-    const devices = (state.attributes && state.attributes.devices) || [];
-    if (!Array.isArray(devices)) {
-      this._deviceDataError = "";
-      return [];
-    }
-
-    const hasCompactDevices = devices.some((device) => (
-      device
-      && typeof device === "object"
-      && !Array.isArray(device)
-      && Object.prototype.hasOwnProperty.call(device, "i")
-    ));
-    if (hasCompactDevices) {
-      this._deviceDataError = "Shared device decoder unavailable.";
-      console.warn("matter-saver-mesh-card: compact device payload found but MatterSaverDeviceData.normalizeDevices is unavailable; returning no devices to avoid mis-rendering.");
-      return [];
-    }
-
-    this._deviceDataError = "";
-    return devices;
+    this._deviceDataError = "Shared device decoder unavailable.";
+    console.warn("matter-saver-mesh-card: shared card utilities unavailable; returning no devices to avoid mis-rendering.");
+    return [];
   }
 
   _renderGraph() {

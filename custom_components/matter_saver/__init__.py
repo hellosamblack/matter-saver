@@ -31,6 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor"]
 LOVELACE_CARD_FILENAMES = (
+    "matter-saver-card-utils.js",
     "matter-saver-device-data.js",
     "matter-saver-card.js",
     "matter-saver-log-card.js",
@@ -208,6 +209,8 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.add_log("warning", nid, name, f"problem detected: {problem}")
                 elif prev_problem != "" and problem == "":
                     self.add_log("success", nid, name, "problem cleared")
+                elif prev_problem != "" and problem != "":
+                    self.add_log("warning", nid, name, f"problem updated: {problem}")
 
             self._previous_status[nid] = available
             self._previous_problem[nid] = problem
