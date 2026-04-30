@@ -31,6 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor"]
 LOVELACE_CARD_FILENAMES = (
+    "matter-saver-device-data.js",
     "matter-saver-card.js",
     "matter-saver-log-card.js",
     "matter-saver-topology-card.js",
