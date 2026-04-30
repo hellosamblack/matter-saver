@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import MatterSaverCoordinator
-from .const import DOMAIN
+from .const import DOMAIN, get_integration_version, get_repository_url
 
 ROLE_TO_CODE = {
     "leader": "l",
@@ -133,7 +133,8 @@ class MatterSaverBaseSensor(CoordinatorEntity[MatterSaverCoordinator], SensorEnt
             "name": "Matter Saver",
             "manufacturer": "Matter Saver",
             "model": "Matter Device Monitor",
-            "sw_version": "0.1.0",
+            "sw_version": get_integration_version(),
+            "configuration_url": get_repository_url(),
         }
 
 

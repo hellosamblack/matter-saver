@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "update"]
 LOVELACE_CARD_FILENAMES = (
     "matter-saver-card-utils.js",
     "matter-saver-device-data.js",

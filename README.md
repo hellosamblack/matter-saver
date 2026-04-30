@@ -16,11 +16,12 @@ This fork maintains the integration at `https://github.com/hellosamblack/matter-
 - **Activity Log** - Persistent log of all status changes and actions with timestamps
 - **Offline History** - Track how often and how long each device was offline (7d/30d stats)
 - **Matter Server Restart** - One-click restart of the Matter Server addon when needed
+- **Integration Update Awareness** - Shows the installed integration version, links back to the repository from the device page, and checks GitHub releases for new versions
 
 ## Dashboard Views
 
 | View | Description |
-|------|-------------|
+| --- | --- |
 | **Status** | Device table with 14 columns, sortable with group headers and search |
 | **Activity** | Chronological log of all events, filterable |
 | **Topology** | Thread mesh tree: routers and their children |
@@ -28,7 +29,7 @@ This fork maintains the integration at `https://github.com/hellosamblack/matter-
 
 ## Screenshots
 
-*Coming soon*
+### Coming soon
 
 ## Installation
 
@@ -59,10 +60,11 @@ This fork maintains the integration at `https://github.com/hellosamblack/matter-
 ## Data Sources
 
 | Source | Data |
-|--------|------|
+| --- | --- |
 | Matter Server WebSocket API | Device status, node attributes, Thread diagnostics |
 | HA Device Registry | Device names, areas |
 | HA Entity Registry | Firmware update status |
+| GitHub Releases API | Matter Saver integration update detection |
 | Matter Cluster 40 | Basic device information |
 | Matter Cluster 47 | Battery level |
 | Matter Cluster 53 | Thread role, neighbors, routing, error counters |
@@ -79,7 +81,7 @@ Four custom Lovelace cards are included:
 ## Services
 
 | Service | Description |
-|---------|-------------|
+| --- | --- |
 | `matter_saver.ping_node` | Ping a Matter node to check reachability |
 | `matter_saver.interview_node` | Re-interview a node to refresh its data |
 | `matter_saver.reset_counters` | Reset Thread diagnostic error counters |
