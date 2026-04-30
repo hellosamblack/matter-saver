@@ -26,7 +26,7 @@
 
   function normalizeDevice(device) {
     if (!device || typeof device !== "object") return {};
-    const isCompactDevice = "i" in device || "r" in device || "av" in device || "rt" in device;
+    const isCompactDevice = "i" in device;
     if (!isCompactDevice) return device;
 
     return {
@@ -59,7 +59,7 @@
     const isCompactHop = hop && typeof hop === "object"
       && ("i" in hop || "rs" in hop || "lq" in hop);
     if (!isCompactHop) return hop;
-    const nodeId = hop ? hop.i : null;
+    const nodeId = hop.i ?? null;
     if (nodeId === null || nodeId === undefined) {
       return { node_id: null, name: "Home Assistant", role: "ha", rssi: null, lqi: null };
     }
