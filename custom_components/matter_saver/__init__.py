@@ -418,7 +418,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 return f"{int(normalized, 16):016X}"
             except ValueError:
-                return normalized if len(normalized) == 16 else ""
+                return ""
         coerced = MatterSaverCoordinator._coerce_int(value)
         if coerced is None:
             return ""
@@ -1413,6 +1413,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
         action: str,
         command: str,
         args: dict[str, Any],
+        fallback_args: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Run a Matter command with logging and error propagation."""
         from homeassistant.exceptions import HomeAssistantError
@@ -1427,6 +1428,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
             action=action,
         )
         result = await coordinator.send_matter_command(command, args)
+        if isinstance(result, dict) and "error" in result and fallback_args:
+            for candidate_args in fallback_args:
+                fallback_result = await coordinator.send_matter_command(
+                    command,
+                    candidate_args,
+                )
+                if not (isinstance(fallback_result, dict) and "error" in fallback_result):
+                    result = fallback_result
+                    break
         if isinstance(result, dict) and "error" in result:
             error_msg = result["error"]
             coordinator.add_log(
@@ -1467,58 +1477,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
 
     async def handle_reset_counters(call: ServiceCall) -> None:
         """Reset Thread diagnostic counters for a node."""
-        from homeassistant.exceptions import HomeAssistantError
-
         node_id = call.data["node_id"]
-        name = _node_name(node_id)
-        action_label = _action_label_en("reset")
-        coordinator.add_log(
-            "action",
-            node_id,
-            name,
-            f"{action_label} started",
-            message_key="action_started",
-            action="reset",
-        )
-
-        result = await coordinator.send_matter_command("device_command", {
+        primary_args = {
             "node_id": node_id,
             "endpoint_id": 0,
             "cluster_id": 53,
             "command_name": "resetCounts",
             "payload": {},
-        })
-        if isinstance(result, dict) and "error" in result:
-            fallback_result = await coordinator.send_matter_command("device_command", {
+        }
+        result = await _run_action(
+            node_id,
+            "reset",
+            "device_command",
+            primary_args,
+            fallback_args=[{
                 "node_id": node_id,
                 "endpoint_id": 0,
                 "cluster_id": 53,
                 "command_name": "ResetCounts",
                 "payload": {},
-            })
-            if not (isinstance(fallback_result, dict) and "error" in fallback_result):
-                result = fallback_result
-
-        if isinstance(result, dict) and "error" in result:
-            error_msg = result["error"]
-            coordinator.add_log(
-                "error",
-                node_id,
-                name,
-                f"{action_label} failed: {error_msg}",
-                message_key="action_failed",
-                action="reset",
-                error=error_msg,
-            )
-            raise HomeAssistantError(f"{action_label} failed: {error_msg}")
-
-        coordinator.add_log(
-            "success",
-            node_id,
-            name,
-            f"{action_label} succeeded",
-            message_key="action_succeeded",
-            action="reset",
+            }],
         )
         await asyncio.sleep(1)
         await coordinator.send_matter_command("read_attribute", {
