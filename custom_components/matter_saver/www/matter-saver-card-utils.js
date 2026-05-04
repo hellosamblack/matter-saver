@@ -4,6 +4,8 @@
     floor: "::matter_saver_internal_no_floor::",
     area: "::matter_saver_internal_no_area::",
   };
+  const ROUTING_ROLES = new Set(["leader", "router", "reed"]);
+  const AREA_NAME_BOUNDARY_PATTERN = "[\\s\\-–—:()\\[\\],/]+";
   const DEVICE_ICON_RULES = [
     { icon: "mdi:home-lock", patterns: [/\b(lock|deadbolt|door lock)\b/i] },
     { icon: "mdi:power-plug", patterns: [/\b(outlet|socket|plug|receptacle)\b/i] },
@@ -590,7 +592,7 @@
 
     const trimmed = normalizedName
       .replace(
-        new RegExp(`(^|[\\s\\-–—:()\\[\\],/]+)${escapeRegExp(normalizedArea)}(?=$|[\\s\\-–—:()\\[\\],/]+)`, "ig"),
+        new RegExp(`(^|${AREA_NAME_BOUNDARY_PATTERN})${escapeRegExp(normalizedArea)}(?=$|${AREA_NAME_BOUNDARY_PATTERN})`, "ig"),
         "$1",
       )
       .replace(/\s{2,}/g, " ")
@@ -622,7 +624,7 @@
       }
     }
 
-    if (["leader", "router", "reed"].includes(device.thread_role || device.role)) {
+    if (ROUTING_ROLES.has(device.thread_role || device.role)) {
       return "mdi:router-wireless";
     }
 

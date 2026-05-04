@@ -1,6 +1,7 @@
 // Lowest comparison value so links with real RSSI win during deduplication.
 const DEDUPE_RSSI_SENTINEL = -999;
 const MESH_VIEW_MODES = new Set(["logical", "by_floor", "by_area", "by_floor_area"]);
+const ROUTER_ROLES = new Set(["leader", "router", "reed"]);
 const FALLBACK_HORIZONTAL_SPREAD = 0.5;
 const FALLBACK_VERTICAL_JITTER = 40;
 const NODE_ROLE_ORDER = {
@@ -231,13 +232,13 @@ class MatterSaverMeshCard extends HTMLElement {
 
     this._nodes.push({
       id: "ha", name: "Home Assistant", role: "ha", status: "online",
-      display_name: "Home Assistant", icon: "mdi:home-assistant",
+      icon: "mdi:home-assistant",
       radius: 20, x: 0, y: 0, fixed: false,
       children: 0, neighbors: 0, area: "", floor: "", product: "Border Router",
     });
 
     for (const device of devices) {
-      const isRouter = ["router", "leader", "reed"].includes(device.thread_role);
+      const isRouter = ROUTER_ROLES.has(device.thread_role);
       this._nodes.push({
         id: device.node_id, name: device.name, role: device.thread_role, status: device.status,
         display_name: this._displayName(device),
