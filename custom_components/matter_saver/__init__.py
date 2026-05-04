@@ -100,7 +100,6 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._store = Store(hass, 1, f"{DOMAIN}_data")
         self._store_loaded = False
         self._first_refresh_done = False
-        self._last_successful_refresh: datetime | None = None
         # Offline history: node_id -> list of {"start": iso, "end": iso|None, "duration_min": int}
         self.offline_history: dict[int, list[dict[str, Any]]] = {}
         # Auto-recovery
@@ -243,6 +242,80 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return None
 
     @staticmethod
+    def _parse_period_timestamp(value: Any) -> datetime | None:
+        """Parse a stored offline-history timestamp."""
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _period_start(cls, period: dict[str, Any]) -> datetime | None:
+        """Return the parsed start timestamp for an offline period."""
+        return cls._parse_period_timestamp(period.get("start"))
+
+    @classmethod
+    def _period_end(
+        cls, period: dict[str, Any], now_dt: datetime
+    ) -> datetime:
+        """Return the parsed end timestamp for an offline period."""
+        end = cls._parse_period_timestamp(period.get("end"))
+        return end or now_dt
+
+    @staticmethod
+    def _seconds_to_minutes(total_seconds: float) -> int:
+        """Convert seconds to rounded minutes for display."""
+        if total_seconds <= 0:
+            return 0
+        return round(total_seconds / 60)
+
+    @classmethod
+    def _close_offline_period(
+        cls,
+        period: dict[str, Any],
+        end_dt: datetime,
+    ) -> None:
+        """Close an offline period at a specific timestamp."""
+        start = cls._period_start(period)
+        if start is not None and end_dt < start:
+            end_dt = start
+        period["end"] = end_dt.isoformat()
+        if start is None:
+            period["duration_min"] = 0
+            return
+        period["duration_min"] = cls._seconds_to_minutes(
+            (end_dt - start).total_seconds()
+        )
+
+    @classmethod
+    def _stale_offline_period_end(
+        cls,
+        period: dict[str, Any],
+        now_dt: datetime,
+    ) -> datetime:
+        """Return the best known end for a stale open offline period."""
+        start = cls._period_start(period)
+        if start is None:
+            return now_dt
+        observed_minutes = period.get("observed_minutes", period.get("duration_min", 0))
+        try:
+            observed_minutes_int = max(0, int(observed_minutes or 0))
+        except (TypeError, ValueError):
+            observed_minutes_int = 0
+        return start + timedelta(minutes=observed_minutes_int)
+
+    @staticmethod
+    def _start_offline_period(now: str) -> dict[str, Any]:
+        """Create a new open offline period starting now."""
+        return {
+            "start": now,
+            "end": None,
+            "duration_min": 0,
+        }
+
+    @staticmethod
     def _offline_window_stats(
         history: list[dict[str, Any]],
         window_start: datetime,
@@ -250,26 +323,14 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> tuple[int, int]:
         """Calculate downtime event count and attributed minutes for a time window."""
         count = 0
-        minutes = 0
+        overlap_seconds_total = 0.0
         for period in history:
             if not isinstance(period, dict):
                 continue
-            start_raw = period.get("start")
-            if not start_raw:
+            start = MatterSaverCoordinator._period_start(period)
+            if start is None:
                 continue
-            try:
-                start = datetime.fromisoformat(start_raw)
-            except ValueError:
-                continue
-
-            end_raw = period.get("end")
-            if end_raw:
-                try:
-                    end = datetime.fromisoformat(end_raw)
-                except ValueError:
-                    end = now_dt
-            else:
-                end = now_dt
+            end = MatterSaverCoordinator._period_end(period, now_dt)
 
             overlap_start = max(start, window_start)
             overlap_end = min(end, now_dt)
@@ -278,17 +339,11 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
 
             count += 1
-            observed_minutes = int(
-                period.get("observed_minutes", period.get("duration_min", 0)) or 0
-            )
-            duration_seconds = max((end - start).total_seconds(), 0)
-            if duration_seconds <= 0:
-                minutes += observed_minutes
-                continue
+            overlap_seconds_total += overlap_seconds
 
-            minutes += round(observed_minutes * overlap_seconds / duration_seconds)
-
-        return count, minutes
+        return count, MatterSaverCoordinator._seconds_to_minutes(
+            overlap_seconds_total
+        )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Matter Server."""
@@ -301,12 +356,6 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Track status changes + offline history
         now_dt = datetime.now(timezone.utc)
         now = now_dt.isoformat()
-        observed_refresh_minutes = 0
-        if self._last_successful_refresh is not None:
-            observed_refresh_minutes = max(
-                0,
-                int((now_dt - self._last_successful_refresh).total_seconds() / 60),
-            )
         history_changed = False
         for node in data.get("nodes", []):
             nid = node["node_id"]
@@ -319,36 +368,15 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             open_period = self._get_open_offline_period(history)
 
             if prev is None:
-                if available and open_period is not None:
-                    observed_minutes = int(
-                        open_period.get(
-                            "observed_minutes", open_period.get("duration_min", 0)
-                        )
-                        or 0
-                    )
-                    open_period["end"] = now
-                    open_period["duration_min"] = observed_minutes
-                    open_period["observed_minutes"] = observed_minutes
+                if open_period is not None:
+                    stale_end = self._stale_offline_period_end(open_period, now_dt)
+                    self._close_offline_period(open_period, stale_end)
                     history_changed = True
-                elif not available and open_period is None:
-                    history.insert(0, {
-                        "start": now,
-                        "end": None,
-                        "duration_min": 0,
-                        "observed_minutes": 0,
-                    })
+                    open_period = None
+                if not available:
+                    history.insert(0, self._start_offline_period(now))
                     self.offline_history[nid] = history[:50]
-                    open_period = self.offline_history[nid][0]
                     history_changed = True
-
-            if prev is False and open_period is not None and observed_refresh_minutes > 0:
-                open_period["observed_minutes"] = int(
-                    open_period.get(
-                        "observed_minutes", open_period.get("duration_min", 0)
-                    )
-                    or 0
-                ) + observed_refresh_minutes
-                history_changed = True
 
             if prev is not None and prev != available:
                 if available:
@@ -361,15 +389,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                     # Close open offline period
                     if open_period is not None:
-                        observed_minutes = int(
-                            open_period.get(
-                                "observed_minutes", open_period.get("duration_min", 0)
-                            )
-                            or 0
-                        )
-                        open_period["end"] = now
-                        open_period["duration_min"] = observed_minutes
-                        open_period["observed_minutes"] = observed_minutes
+                        self._close_offline_period(open_period, now_dt)
                         history_changed = True
                 else:
                     self.add_log(
@@ -380,10 +400,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         message_key="node_offline",
                     )
                     # Start new offline period
-                    history.insert(0, {
-                        "start": now, "end": None, "duration_min": 0,
-                        "observed_minutes": 0,
-                    })
+                    history.insert(0, self._start_offline_period(now))
                     # Keep max 50 entries per node
                     self.offline_history[nid] = history[:50]
                     history_changed = True
@@ -441,7 +458,6 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             node["offline_30d_count"] = month_count
             node["offline_30d_minutes"] = month_minutes
 
-        self._last_successful_refresh = now_dt
         if history_changed:
             self.hass.async_create_task(self._async_save_log())
         data["activity_log"] = self.activity_log
