@@ -304,11 +304,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return now_dt
         # Keep supporting historical periods saved before stale-open migration
         # so existing persisted data is closed at the last known observed point.
-        observed_minutes = period.get("observed_minutes", period.get("duration_min", 0))
-        try:
-            observed_minutes_int = max(0, int(observed_minutes or 0))
-        except (TypeError, ValueError):
-            observed_minutes_int = 0
+        observed_minutes_int = cls._stored_observed_minutes(period)
         return start + timedelta(minutes=observed_minutes_int)
 
     @staticmethod
@@ -319,6 +315,19 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "end": None,
             "duration_min": 0,
         }
+
+    @staticmethod
+    def _stored_observed_minutes(period: dict[str, Any]) -> int:
+        """Return the best known observed minutes from persisted history."""
+        observed_minutes = (
+            period["observed_minutes"]
+            if "observed_minutes" in period
+            else period.get("duration_min", 0)
+        )
+        try:
+            return max(0, int(observed_minutes))
+        except (TypeError, ValueError):
+            return 0
 
     @staticmethod
     def _offline_window_stats(
@@ -377,7 +386,6 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     stale_end = self._stale_offline_period_end(open_period, now_dt)
                     self._close_offline_period(open_period, stale_end)
                     history_changed = True
-                    open_period = None
                 if not available:
                     history.insert(0, self._start_offline_period(now))
                     self.offline_history[nid] = history[:50]
