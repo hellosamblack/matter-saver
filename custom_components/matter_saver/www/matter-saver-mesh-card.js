@@ -34,6 +34,7 @@ class MatterSaverMeshCard extends HTMLElement {
     this._viewMode = "logical";
     this._floorOrder = [];
     this._areaOrder = [];
+    this._trimAreaFromName = true;
   }
 
   setConfig(config) {
@@ -41,6 +42,7 @@ class MatterSaverMeshCard extends HTMLElement {
     this._entityId = config.entity || "sensor.matter_saver_devices";
     this._title = config.title || "Thread Mesh";
     this._showLegend = config.show_legend !== false;
+    this._trimAreaFromName = config.trim_area_from_name !== false;
     this._graphHeight = Number.isFinite(Number(config.height)) && Number(config.height) >= 320
       ? Number(config.height)
       : null;
@@ -229,6 +231,7 @@ class MatterSaverMeshCard extends HTMLElement {
 
     this._nodes.push({
       id: "ha", name: "Home Assistant", role: "ha", status: "online",
+      display_name: "Home Assistant", icon: "mdi:home-assistant",
       radius: 20, x: 0, y: 0, fixed: false,
       children: 0, neighbors: 0, area: "", floor: "", product: "Border Router",
     });
@@ -237,6 +240,8 @@ class MatterSaverMeshCard extends HTMLElement {
       const isRouter = ["router", "leader", "reed"].includes(device.thread_role);
       this._nodes.push({
         id: device.node_id, name: device.name, role: device.thread_role, status: device.status,
+        display_name: this._displayName(device),
+        icon: this._deviceIcon(device),
         radius: isRouter ? 16 : 10,
         x: 0, y: 0, fixed: false,
         children: device.children || 0, neighbors: device.neighbors || 0,
@@ -624,8 +629,10 @@ class MatterSaverMeshCard extends HTMLElement {
       const opacity = offline ? 0.4 : 1;
       const strokeColor = offline ? "#f44336" : "rgba(255,255,255,0.15)";
       const strokeWidth = offline ? 2 : 1;
-      const label = node.name.length > 18 ? `${node.name.substring(0, 16)}..` : node.name;
+      const nodeName = node.display_name || node.name;
+      const label = nodeName.length > 18 ? `${nodeName.substring(0, 16)}..` : nodeName;
       const fontSize = node.role === "ha" ? 11 : node.radius > 12 ? 9 : 8;
+      const iconSize = Math.max(14, Math.round(node.radius * 1.2));
       const glow = node.errors > 10000
         ? `<circle cx="${node.x}" cy="${node.y}" r="${node.radius + 4}" fill="none" stroke="#f4433655" stroke-width="3" />`
         : "";
@@ -633,6 +640,7 @@ class MatterSaverMeshCard extends HTMLElement {
       html += `${glow}
         <g class="mm-node" data-id="${node.id}" style="cursor:${this._nodeCursor(node)};opacity:${opacity}">
           <circle cx="${node.x}" cy="${node.y}" r="${node.radius}" fill="${color}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
+          ${this._nodeIconMarkup(node, iconSize)}
           <text x="${node.x}" y="${node.y + node.radius + fontSize + 2}" text-anchor="middle" fill="var(--primary-text-color, #fff)" font-size="${fontSize}" font-family="inherit">${this._esc(label)}</text>
         </g>`;
     }
@@ -681,10 +689,13 @@ class MatterSaverMeshCard extends HTMLElement {
     const detailEl = this.querySelector("#mm-tt-detail");
     if (!tooltip) return;
 
-    nameEl.textContent = node.name;
+    nameEl.textContent = node.display_name || node.name;
     let detail = node.id === "ha"
       ? this._t("homeAssistant")
       : `${this._t("node")} ${node.id} | ${this._roleLabel(node.role)}`;
+    if (node.display_name && node.display_name !== node.name) {
+      detail += `\n${this._t("name")}: ${node.name}`;
+    }
     if (node.floor) detail += `\n${this._t("floor")}: ${node.floor}`;
     if (node.area) detail += `\n${this._t("area")}: ${node.area}`;
     if (node.product) detail += `\n${node.product}`;
@@ -715,6 +726,34 @@ class MatterSaverMeshCard extends HTMLElement {
     return this._viewMode === "logical" && node.id !== "ha" ? "grab" : "pointer";
   }
 
+  _nodeIconMarkup(node, size) {
+    const icon = node.icon || "mdi:devices";
+    const iconColor = ["leader", "reed"].includes(node.role) ? "#263238" : "#ffffff";
+    const x = node.x - size / 2;
+    const y = node.y - size / 2;
+    return `
+      <foreignObject x="${x}" y="${y}" width="${size}" height="${size}" pointer-events="none">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;">
+          <ha-icon icon="${this._escAttr(icon)}" style="--mdc-icon-size:${Math.max(12, Math.round(size * 0.72))}px;color:${iconColor};"></ha-icon>
+        </div>
+      </foreignObject>`;
+  }
+
+  _displayName(device) {
+    const name = String(device?.name || "").trim();
+    if (!name) {
+      return name;
+    }
+    if (!this._trimAreaFromName) {
+      return name;
+    }
+    return window.MatterSaverCardUtils?.trimAreaFromName(name, device?.area) || name;
+  }
+
+  _deviceIcon(device) {
+    return window.MatterSaverCardUtils?.deviceTypeIcon(device) || "mdi:devices";
+  }
+
   _roleLabel(role) {
     return role === "ha"
       ? this._t("homeAssistant")
@@ -731,6 +770,10 @@ class MatterSaverMeshCard extends HTMLElement {
 
   _esc(str) {
     return (str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  _escAttr(str) {
+    return this._esc(str).replace(/'/g, "&#39;");
   }
 
   static async getConfigElement() {
