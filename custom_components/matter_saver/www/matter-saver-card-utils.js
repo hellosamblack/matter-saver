@@ -590,11 +590,15 @@
       return normalizedName;
     }
 
+    let matcher;
+    try {
+      matcher = new RegExp(`(^|${AREA_NAME_BOUNDARY_PATTERN})${escapeRegExp(normalizedArea)}(?=$|${AREA_NAME_BOUNDARY_PATTERN})`, "ig");
+    } catch (error) {
+      return normalizedName;
+    }
+
     const trimmed = normalizedName
-      .replace(
-        new RegExp(`(^|${AREA_NAME_BOUNDARY_PATTERN})${escapeRegExp(normalizedArea)}(?=$|${AREA_NAME_BOUNDARY_PATTERN})`, "ig"),
-        "$1",
-      )
+      .replace(matcher, "$1")
       .replace(/\s{2,}/g, " ")
       .replace(/^[\s\-–—:(),/]+|[\s\-–—:(),/]+$/g, "")
       .trim();
@@ -603,7 +607,7 @@
   }
 
   function deviceTypeIcon(device) {
-    if (!device || typeof device !== "object") {
+    if (!device || typeof device !== "object" || Array.isArray(device)) {
       return "mdi:devices";
     }
 

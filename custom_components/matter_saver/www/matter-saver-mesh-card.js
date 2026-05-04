@@ -690,12 +690,14 @@ class MatterSaverMeshCard extends HTMLElement {
     const detailEl = this.querySelector("#mm-tt-detail");
     if (!tooltip) return;
 
-    nameEl.textContent = node.display_name || node.name;
+    const displayName = String(node.display_name || node.name || "").trim();
+    const originalName = String(node.name || "").trim();
+    nameEl.textContent = displayName;
     let detail = node.id === "ha"
       ? this._t("homeAssistant")
       : `${this._t("node")} ${node.id} | ${this._roleLabel(node.role)}`;
-    if (node.display_name && node.display_name !== node.name) {
-      detail += `\n${this._t("name")}: ${node.name}`;
+    if (displayName !== originalName && originalName) {
+      detail += `\n${this._t("name")}: ${originalName}`;
     }
     if (node.floor) detail += `\n${this._t("floor")}: ${node.floor}`;
     if (node.area) detail += `\n${this._t("area")}: ${node.area}`;
