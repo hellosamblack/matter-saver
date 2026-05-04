@@ -254,6 +254,8 @@ class MatterSaverCardEditor extends HTMLElement {
     this._config = {};
     this._cardType = "matter-saver-card";
     this._initialized = false;
+    this._lastDynamicLocationSignature = "";
+    this._dragState = null;
   }
 
   set cardType(value) {
@@ -378,6 +380,21 @@ class MatterSaverCardEditor extends HTMLElement {
           display: grid;
           gap: 8px;
         }
+        .ms-editor__order-group {
+          display: grid;
+          gap: 8px;
+        }
+        .ms-editor__order-group-title {
+          color: var(--secondary-text-color);
+          font-size: 0.8rem;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+        .ms-editor__order-group-list {
+          display: grid;
+          gap: 8px;
+        }
         .ms-editor__order-item {
           display: flex;
           justify-content: space-between;
@@ -387,6 +404,18 @@ class MatterSaverCardEditor extends HTMLElement {
           border-radius: 10px;
           border: 1px solid var(--divider-color, rgba(255,255,255,0.12));
           background: color-mix(in srgb, var(--card-background-color, transparent) 95%, var(--primary-text-color, #fff) 5%);
+        }
+        .ms-editor__order-item[draggable="true"] {
+          cursor: grab;
+        }
+        .ms-editor__order-item--dragging {
+          opacity: 0.55;
+        }
+        .ms-editor__order-item--before {
+          box-shadow: inset 0 3px 0 var(--primary-color, #03a9f4);
+        }
+        .ms-editor__order-item--after {
+          box-shadow: inset 0 -3px 0 var(--primary-color, #03a9f4);
         }
         .ms-editor__order-label {
           display: grid;
@@ -402,23 +431,35 @@ class MatterSaverCardEditor extends HTMLElement {
           color: var(--secondary-text-color);
           font-size: 0.75rem;
         }
+        .ms-editor__order-handle {
+          color: var(--secondary-text-color);
+          font-size: 1rem;
+          line-height: 1;
+          letter-spacing: -0.18em;
+          user-select: none;
+          flex-shrink: 0;
+        }
         .ms-editor__order-actions {
           display: flex;
+          align-items: center;
           gap: 6px;
           flex-shrink: 0;
         }
-        .ms-editor__order-btn {
+        .ms-editor__order-button {
           border: 1px solid var(--divider-color, rgba(255,255,255,0.16));
-          background: var(--card-background-color, transparent);
+          background: transparent;
           color: var(--primary-text-color);
           border-radius: 8px;
-          width: 32px;
-          height: 32px;
+          width: 28px;
+          height: 28px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           cursor: pointer;
-          font: inherit;
+          font-size: 0.95rem;
         }
-        .ms-editor__order-btn:disabled {
-          opacity: 0.4;
+        .ms-editor__order-button:disabled {
+          opacity: 0.45;
           cursor: default;
         }
         .ms-editor__order-empty {
@@ -496,6 +537,7 @@ class MatterSaverCardEditor extends HTMLElement {
     }
 
     this._renderExtraFields();
+    this._lastDynamicLocationSignature = this._dynamicLocationSignature();
 
     this._initialized = true;
     this._syncEntityPicker();
@@ -575,9 +617,13 @@ class MatterSaverCardEditor extends HTMLElement {
     `;
   }
 
-  _renderExtraFields() {
+  _renderExtraFields(fieldTypes = null) {
     const meta = this._meta();
+    const allowedTypes = Array.isArray(fieldTypes) ? new Set(fieldTypes) : null;
     for (const field of meta.fields || []) {
+      if (allowedTypes && !allowedTypes.has(field.type)) {
+        continue;
+      }
       const container = this.querySelector(`[data-field="${field.name}"] .ms-editor__control`);
       if (!container) {
         continue;
@@ -691,7 +737,7 @@ class MatterSaverCardEditor extends HTMLElement {
     }
 
     if (this._initialized) {
-      this._refreshDynamicFields();
+      this._refreshDynamicFields(["location-order"]);
     }
   }
 
@@ -722,7 +768,7 @@ class MatterSaverCardEditor extends HTMLElement {
 
     this._config = nextConfig;
     if (this._initialized) {
-      this._refreshDynamicFields();
+      this._refreshDynamicFields(["location-order"], { force: true });
     }
     this.dispatchEvent(new CustomEvent("config-changed", {
       detail: { config: nextConfig },
@@ -747,7 +793,7 @@ class MatterSaverCardEditor extends HTMLElement {
 
     this._config = nextConfig;
     if (field.type === "location-order" && this._initialized) {
-      this._refreshDynamicFields();
+      this._refreshDynamicFields(["location-order"], { force: true });
     }
     this.dispatchEvent(new CustomEvent("config-changed", {
       detail: { config: nextConfig },
@@ -818,55 +864,25 @@ class MatterSaverCardEditor extends HTMLElement {
       return wrapper;
     }
 
-    orderedValues.forEach((value, index) => {
-      const row = document.createElement("div");
-      row.className = "ms-editor__order-item";
+    const groups = this._locationOrderGroups(field, orderedValues);
+    groups.forEach((group) => {
+      const groupWrap = document.createElement("div");
+      groupWrap.className = "ms-editor__order-group";
+      if (field.target === "area") {
+        const heading = document.createElement("div");
+        heading.className = "ms-editor__order-group-title";
+        heading.textContent = group.label;
+        groupWrap.append(heading);
+      }
 
-      const labelWrap = document.createElement("div");
-      labelWrap.className = "ms-editor__order-label";
-
-      const title = document.createElement("div");
-      title.className = "ms-editor__order-title";
-      title.textContent = this._locationValueLabel(field, value);
-
-      const meta = document.createElement("div");
-      meta.className = "ms-editor__order-meta";
-      meta.textContent = field.target === "floor"
-        ? this._tEditor("editorTopToBottom")
-        : this._tEditor("editorLeftToRight");
-
-      labelWrap.append(title, meta);
-
-      const actions = document.createElement("div");
-      actions.className = "ms-editor__order-actions";
-
-      const upButton = document.createElement("button");
-      upButton.type = "button";
-      upButton.className = "ms-editor__order-btn";
-      upButton.textContent = "↑";
-      upButton.disabled = index === 0;
-      const upLabel = this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) });
-      upButton.setAttribute("aria-label", upLabel);
-      upButton.title = upLabel;
-      upButton.addEventListener("click", () => {
-        this._moveLocationValue(field, orderedValues, index, index - 1);
+      const list = document.createElement("div");
+      list.className = "ms-editor__order-group-list";
+      group.values.forEach((value) => {
+        list.append(this._createLocationOrderItem(field, value, group, groups));
       });
 
-      const downButton = document.createElement("button");
-      downButton.type = "button";
-      downButton.className = "ms-editor__order-btn";
-      downButton.textContent = "↓";
-      downButton.disabled = index === orderedValues.length - 1;
-      const downLabel = this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) });
-      downButton.setAttribute("aria-label", downLabel);
-      downButton.title = downLabel;
-      downButton.addEventListener("click", () => {
-        this._moveLocationValue(field, orderedValues, index, index + 1);
-      });
-
-      actions.append(upButton, downButton);
-      row.append(labelWrap, actions);
-      wrapper.append(row);
+      groupWrap.append(list);
+      wrapper.append(groupWrap);
     });
 
     return wrapper;
@@ -891,16 +907,6 @@ class MatterSaverCardEditor extends HTMLElement {
     });
   }
 
-  _moveLocationValue(field, values, fromIndex, toIndex) {
-    if (toIndex < 0 || toIndex >= values.length) {
-      return;
-    }
-    const nextValues = [...values];
-    const [moved] = nextValues.splice(fromIndex, 1);
-    nextValues.splice(toIndex, 0, moved);
-    this._updateField(field, nextValues);
-  }
-
   _normalizeLocationValues(values) {
     if (!Array.isArray(values)) {
       return [];
@@ -922,8 +928,18 @@ class MatterSaverCardEditor extends HTMLElement {
     return window.MatterSaverCardUtils?.t(this._hass, key, vars) || key;
   }
 
-  _refreshDynamicFields() {
-    this._renderExtraFields();
+  _refreshDynamicFields(fieldTypes = null, options = {}) {
+    const allowedTypes = Array.isArray(fieldTypes) ? new Set(fieldTypes) : null;
+    if (allowedTypes && allowedTypes.size === 1 && allowedTypes.has("location-order")) {
+      const nextSignature = this._dynamicLocationSignature();
+      if (!options.force && nextSignature === this._lastDynamicLocationSignature) {
+        return;
+      }
+      this._lastDynamicLocationSignature = nextSignature;
+    } else if (!allowedTypes) {
+      this._lastDynamicLocationSignature = this._dynamicLocationSignature();
+    }
+    this._renderExtraFields(fieldTypes);
   }
 
   _fieldLabel(field) {
@@ -968,6 +984,264 @@ class MatterSaverCardEditor extends HTMLElement {
   _locationOrderFallback(target) {
     return window.MatterSaverCardUtils?.LOCATION_ORDER_FALLBACKS?.[target]
       || `::matter_saver_internal_no_${target}::`;
+  }
+
+  _dynamicLocationSignature() {
+    return JSON.stringify({
+      entity: this._config.entity || this._meta().defaultEntity,
+      locations: this._locationSnapshot(),
+    });
+  }
+
+  _orderedGroups(values, preferredOrder) {
+    const uniqueValues = [...new Set(values.filter(Boolean))];
+    const ordered = [];
+    const seen = new Set();
+
+    preferredOrder.forEach((value) => {
+      if (uniqueValues.includes(value) && !seen.has(value)) {
+        ordered.push(value);
+        seen.add(value);
+      }
+    });
+
+    uniqueValues
+      .filter((value) => !seen.has(value))
+      .sort((left, right) => left.localeCompare(right))
+      .forEach((value) => ordered.push(value));
+
+    return ordered;
+  }
+
+  _locationSnapshot() {
+    const floors = new Set();
+    const areaFloorPairs = new Map();
+    for (const device of this._getEditorDevices()) {
+      const floor = this._extractLocationValue(device, { target: "floor" });
+      const area = this._extractLocationValue(device, { target: "area" });
+      floors.add(floor);
+      if (!areaFloorPairs.has(area)) {
+        areaFloorPairs.set(area, floor);
+      }
+    }
+
+    return {
+      floors: [...floors].sort((left, right) => left.localeCompare(right)),
+      areas: [...areaFloorPairs.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([area, floor]) => ({ area, floor })),
+    };
+  }
+
+  _locationOrderGroups(field, orderedValues) {
+    if (field.target !== "area") {
+      return [{
+        key: "__all__",
+        label: "",
+        values: orderedValues,
+      }];
+    }
+
+    const areaFloorMap = this._areaFloorMap();
+    const grouped = new Map();
+    orderedValues.forEach((value) => {
+      const floorKey = areaFloorMap.get(value) || this._locationOrderFallback("floor");
+      if (!grouped.has(floorKey)) {
+        grouped.set(floorKey, []);
+      }
+      grouped.get(floorKey).push(value);
+    });
+
+    return this._orderedGroups([...grouped.keys()], this._normalizeLocationValues(this._config.floor_order))
+      .map((floorKey) => ({
+        key: floorKey,
+        label: this._locationValueLabel({ target: "floor" }, floorKey),
+        values: grouped.get(floorKey) || [],
+      }))
+      .filter((group) => group.values.length);
+  }
+
+  _areaFloorMap() {
+    const areaFloorMap = new Map();
+    for (const device of this._getEditorDevices()) {
+      const area = this._extractLocationValue(device, { target: "area" });
+      if (!areaFloorMap.has(area)) {
+        areaFloorMap.set(area, this._extractLocationValue(device, { target: "floor" }));
+      }
+    }
+    return areaFloorMap;
+  }
+
+  _createLocationOrderItem(field, value, group, groups) {
+    const row = document.createElement("div");
+    row.className = "ms-editor__order-item";
+    row.draggable = true;
+    row.dataset.groupKey = group.key;
+    row.dataset.value = value;
+    row.setAttribute("aria-label", `${this._locationValueLabel(field, value)} — ${field.target === "floor" ? this._tEditor("editorTopToBottom") : this._tEditor("editorLeftToRight")}`);
+    const itemIndex = group.values.indexOf(value);
+
+    const labelWrap = document.createElement("div");
+    labelWrap.className = "ms-editor__order-label";
+
+    const title = document.createElement("div");
+    title.className = "ms-editor__order-title";
+    title.textContent = this._locationValueLabel(field, value);
+
+    const meta = document.createElement("div");
+    meta.className = "ms-editor__order-meta";
+    meta.textContent = field.target === "floor"
+      ? this._tEditor("editorTopToBottom")
+      : this._tEditor("editorLeftToRight");
+
+    labelWrap.append(title, meta);
+
+    const handle = document.createElement("div");
+    handle.className = "ms-editor__order-handle";
+    handle.textContent = "⋮⋮";
+    handle.setAttribute("aria-hidden", "true");
+
+    const actions = document.createElement("div");
+    actions.className = "ms-editor__order-actions";
+
+    const moveUp = document.createElement("button");
+    moveUp.type = "button";
+    moveUp.className = "ms-editor__order-button";
+    moveUp.textContent = "↑";
+    moveUp.disabled = itemIndex <= 0;
+    moveUp.setAttribute("aria-label", this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) }));
+    moveUp.addEventListener("click", () => {
+      this._updateField(field, this._shiftLocationValue(groups, group.key, value, -1));
+    });
+
+    const moveDown = document.createElement("button");
+    moveDown.type = "button";
+    moveDown.className = "ms-editor__order-button";
+    moveDown.textContent = "↓";
+    moveDown.disabled = itemIndex === -1 || itemIndex >= group.values.length - 1;
+    moveDown.setAttribute("aria-label", this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) }));
+    moveDown.addEventListener("click", () => {
+      this._updateField(field, this._shiftLocationValue(groups, group.key, value, 1));
+    });
+
+    actions.append(moveUp, moveDown, handle);
+    row.append(labelWrap, actions);
+
+    row.addEventListener("dragstart", (event) => {
+      this._dragState = {
+        fieldName: field.name,
+        groupKey: group.key,
+        value,
+      };
+      row.classList.add("ms-editor__order-item--dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", value);
+      }
+    });
+
+    row.addEventListener("dragend", () => {
+      row.classList.remove("ms-editor__order-item--dragging");
+      this._dragState = null;
+      this._clearLocationDropIndicators();
+    });
+
+    row.addEventListener("dragover", (event) => {
+      if (!this._canDropLocationOrder(field, group.key, value)) {
+        return;
+      }
+      event.preventDefault();
+      const before = this._dropBeforeRow(row, event.clientY);
+      this._setLocationDropIndicator(row, before);
+    });
+
+    row.addEventListener("drop", (event) => {
+      if (!this._canDropLocationOrder(field, group.key, value)) {
+        return;
+      }
+      event.preventDefault();
+      const before = this._dropBeforeRow(row, event.clientY);
+      const nextValues = this._reorderedLocationValues(groups, group.key, value, before);
+      this._clearLocationDropIndicators();
+      this._updateField(field, nextValues);
+    });
+
+    return row;
+  }
+
+  _canDropLocationOrder(field, groupKey, targetValue) {
+    return Boolean(this._dragState)
+      && this._dragState.fieldName === field.name
+      && this._dragState.groupKey === groupKey
+      && this._dragState.value !== targetValue;
+  }
+
+  _dropBeforeRow(row, clientY) {
+    const rect = row.getBoundingClientRect();
+    return clientY <= rect.top + rect.height / 2;
+  }
+
+  _setLocationDropIndicator(row, before) {
+    this._clearLocationDropIndicators();
+    row.classList.add(before ? "ms-editor__order-item--before" : "ms-editor__order-item--after");
+  }
+
+  _clearLocationDropIndicators() {
+    this.querySelectorAll(".ms-editor__order-item--before, .ms-editor__order-item--after").forEach((item) => {
+      item.classList.remove("ms-editor__order-item--before", "ms-editor__order-item--after");
+    });
+  }
+
+  _reorderedLocationValues(groups, groupKey, targetValue, before) {
+    if (!this._dragState) {
+      return groups.flatMap((group) => group.values);
+    }
+
+    const nextGroups = groups.map((group) => ({
+      ...group,
+      values: [...group.values],
+    }));
+    const targetGroup = nextGroups.find((group) => group.key === groupKey);
+    if (!targetGroup) {
+      return nextGroups.flatMap((group) => group.values);
+    }
+
+    const fromIndex = targetGroup.values.indexOf(this._dragState.value);
+    const targetIndex = targetGroup.values.indexOf(targetValue);
+    if (fromIndex === -1 || targetIndex === -1) {
+      return nextGroups.flatMap((group) => group.values);
+    }
+
+    const [moved] = targetGroup.values.splice(fromIndex, 1);
+    let insertIndex = before ? targetIndex : targetIndex + 1;
+    if (insertIndex > fromIndex) {
+      // Removing the dragged item shifts later items left by one, so adjust the
+      // insertion point when dropping after the original position.
+      insertIndex -= 1;
+    }
+    targetGroup.values.splice(insertIndex, 0, moved);
+    return nextGroups.flatMap((group) => group.values);
+  }
+
+  _shiftLocationValue(groups, groupKey, value, offset) {
+    const nextGroups = groups.map((group) => ({
+      ...group,
+      values: [...group.values],
+    }));
+    const targetGroup = nextGroups.find((group) => group.key === groupKey);
+    if (!targetGroup) {
+      return nextGroups.flatMap((group) => group.values);
+    }
+
+    const fromIndex = targetGroup.values.indexOf(value);
+    const toIndex = fromIndex + offset;
+    if (fromIndex === -1 || toIndex < 0 || toIndex >= targetGroup.values.length) {
+      return nextGroups.flatMap((group) => group.values);
+    }
+
+    const [moved] = targetGroup.values.splice(fromIndex, 1);
+    targetGroup.values.splice(toIndex, 0, moved);
+    return nextGroups.flatMap((group) => group.values);
   }
 }
 

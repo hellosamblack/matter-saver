@@ -4,6 +4,8 @@ const MESH_VIEW_MODES = new Set(["logical", "by_floor", "by_area", "by_floor_are
 const ROUTER_ROLES = new Set(["leader", "router", "reed"]);
 const FALLBACK_HORIZONTAL_SPREAD = 0.5;
 const FALLBACK_VERTICAL_JITTER = 40;
+const LINK_NODE_CLEARANCE = 12;
+const LINK_ENDPOINT_PADDING = 4;
 const NODE_ROLE_ORDER = {
   leader: 0,
   router: 1,
@@ -94,6 +96,7 @@ class MatterSaverMeshCard extends HTMLElement {
       node.fixed = false;
       node.x = 0;
       node.y = 0;
+      delete node.labelPosition;
     }
   }
 
@@ -461,16 +464,23 @@ class MatterSaverMeshCard extends HTMLElement {
       this._regions.push(floorRegion);
 
       const areas = this._orderedGroups([...floorMap.get(floorKey).keys()], this._areaOrder);
-      const roomGap = 12;
-      const roomWidth = Math.max((floorRegion.width - 24 - roomGap * Math.max(areas.length - 1, 0)) / Math.max(areas.length, 1), 100);
-      areas.forEach((areaKey, areaIndex) => {
+      const roomZones = this._gridRegionsInBounds(areas, {
+        x: floorRegion.x + 12,
+        y: floorRegion.y + 34,
+        width: Math.max(floorRegion.width - 24, 112),
+        height: Math.max(floorRegion.height - 46, 76),
+      }, "room", {
+        gap: 12,
+        maxColumns: Math.min(3, Math.max(areas.length, 1)),
+        minWidth: 132,
+        minHeight: 96,
+      });
+
+      roomZones.forEach((zone) => {
+        const areaKey = zone.label;
         const roomRegion = {
-          kind: "room",
+          ...zone,
           label: this._locationGroupLabel("area", areaKey),
-          x: floorRegion.x + 12 + areaIndex * (roomWidth + roomGap),
-          y: floorRegion.y + 34,
-          width: roomWidth,
-          height: Math.max(floorRegion.height - 46, 76),
         };
         this._regions.push(roomRegion);
         this._layoutNodesInZone(floorMap.get(floorKey).get(areaKey) || [], roomRegion, { topInset: 28, sideInset: 12, bottomInset: 12 });
@@ -479,22 +489,30 @@ class MatterSaverMeshCard extends HTMLElement {
   }
 
   _gridRegions(groups, width, height, kind, top) {
-    const left = 16;
-    const right = 16;
-    const bottom = 16;
-    const gap = 16;
-    const columns = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(groups.length || 1))));
-    const rows = Math.max(1, Math.ceil(groups.length / columns));
-    const usableWidth = Math.max(width - left - right, 140);
-    const usableHeight = Math.max(height - top - bottom, 140);
-    const cellWidth = Math.max((usableWidth - gap * Math.max(columns - 1, 0)) / columns, 120);
-    const cellHeight = Math.max((usableHeight - gap * Math.max(rows - 1, 0)) / rows, 100);
+    return this._gridRegionsInBounds(groups, {
+      x: 16,
+      y: top,
+      width: Math.max(width - 32, 140),
+      height: Math.max(height - top - 16, 140),
+    }, kind);
+  }
+
+  _gridRegionsInBounds(groups, bounds, kind, options = {}) {
+    const gap = options.gap ?? 16;
+    const minWidth = options.minWidth ?? 120;
+    const minHeight = options.minHeight ?? 100;
+    const maxColumns = options.maxColumns ?? 3;
+    const widthBasedColumns = Math.max(1, Math.floor((bounds.width + gap) / (minWidth + gap)));
+    const columns = Math.max(1, Math.min(maxColumns, groups.length || 1, widthBasedColumns));
+    const rows = Math.max(1, Math.ceil((groups.length || 1) / columns));
+    const cellWidth = Math.max((bounds.width - gap * Math.max(columns - 1, 0)) / columns, Math.min(minWidth, bounds.width));
+    const cellHeight = Math.max((bounds.height - gap * Math.max(rows - 1, 0)) / rows, Math.min(minHeight, bounds.height));
 
     return groups.map((label, index) => ({
       kind,
       label,
-      x: left + (index % columns) * (cellWidth + gap),
-      y: top + Math.floor(index / columns) * (cellHeight + gap),
+      x: bounds.x + (index % columns) * (cellWidth + gap),
+      y: bounds.y + Math.floor(index / columns) * (cellHeight + gap),
       width: cellWidth,
       height: cellHeight,
     }));
@@ -550,19 +568,86 @@ class MatterSaverMeshCard extends HTMLElement {
       return;
     }
 
-    const usableWidth = Math.max(zone.width - sideInset * 2, 48);
-    const usableHeight = Math.max(zone.height - topInset - bottomInset, 48);
-    const columns = Math.max(1, Math.min(movableNodes.length, Math.floor(usableWidth / 82)));
-    const rows = Math.max(1, Math.ceil(movableNodes.length / columns));
-    const cellWidth = usableWidth / columns;
-    const cellHeight = usableHeight / rows;
+    const layoutBounds = {
+      x: zone.x + sideInset,
+      y: zone.y + topInset,
+      width: Math.max(zone.width - sideInset * 2, 48),
+      height: Math.max(zone.height - topInset - bottomInset, 48),
+    };
+    const points = this._zonePatternPoints(movableNodes.length, layoutBounds);
 
     movableNodes.forEach((node, index) => {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      node.x = zone.x + sideInset + cellWidth * column + cellWidth / 2;
-      node.y = zone.y + topInset + cellHeight * row + cellHeight / 2;
+      const point = points[index] || {
+        x: layoutBounds.x + layoutBounds.width / 2,
+        y: layoutBounds.y + layoutBounds.height / 2,
+      };
+      node.x = point.x;
+      node.y = point.y;
+      node.labelPosition = point.y > layoutBounds.y + layoutBounds.height * 0.58 ? "above" : "below";
     });
+  }
+
+  _zonePatternPoints(count, bounds) {
+    if (count <= 0) {
+      return [];
+    }
+
+    const centerX = bounds.x + bounds.width / 2;
+    const centerY = bounds.y + bounds.height / 2;
+    const left = bounds.x + bounds.width * 0.22;
+    const right = bounds.x + bounds.width * 0.78;
+    const upper = bounds.y + bounds.height * 0.28;
+    const lower = bounds.y + bounds.height * 0.72;
+
+    if (count === 1) {
+      return [{ x: centerX, y: centerY }];
+    }
+    if (count === 2) {
+      return [
+        { x: left, y: centerY },
+        { x: right, y: centerY },
+      ];
+    }
+    if (count === 3) {
+      return [
+        { x: centerX, y: upper },
+        { x: left, y: lower },
+        { x: right, y: lower },
+      ];
+    }
+    if (count === 4) {
+      return [
+        { x: left, y: upper },
+        { x: right, y: upper },
+        { x: left, y: lower },
+        { x: right, y: lower },
+      ];
+    }
+
+    const idealColumns = Math.max(1, Math.round(Math.sqrt((count * bounds.width) / Math.max(bounds.height, 1))));
+    const maxColumns = Math.max(1, Math.floor((bounds.width + 18) / 58));
+    const columns = Math.max(1, Math.min(count, Math.max(1, Math.min(maxColumns, idealColumns))));
+    const rows = Math.max(1, Math.ceil(count / columns));
+    const cellWidth = bounds.width / columns;
+    const cellHeight = bounds.height / rows;
+    const points = [];
+
+    for (let row = 0; row < rows; row++) {
+      const startIndex = row * columns;
+      const rowItems = Math.min(columns, count - startIndex);
+      const rowOffset = (columns - rowItems) * cellWidth * 0.5;
+      for (let column = 0; column < rowItems; column++) {
+        const arcOffset = rowItems > 2
+          ? Math.abs(column - (rowItems - 1) / 2) * Math.min(cellHeight * 0.14, 8)
+          : 0;
+        points.push({
+          x: bounds.x + rowOffset + cellWidth * column + cellWidth / 2,
+          y: bounds.y + cellHeight * row + cellHeight / 2 - arcOffset,
+        });
+      }
+    }
+
+    return points;
   }
 
   _locationGroupKey(target, node) {
@@ -621,7 +706,7 @@ class MatterSaverMeshCard extends HTMLElement {
       const source = nodeMap[link.source];
       const target = nodeMap[link.target];
       if (!source || !target) continue;
-      html += `<line x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}" stroke="${this._linkColor(link.rssi)}" stroke-width="2" />`;
+      html += `<path d="${this._linkPath(source, target, link)}" fill="none" stroke="${this._linkColor(link.rssi)}" stroke-width="2" stroke-linecap="round" />`;
     }
 
     for (const node of this._nodes) {
@@ -634,6 +719,8 @@ class MatterSaverMeshCard extends HTMLElement {
       const label = nodeName.length > 18 ? `${nodeName.substring(0, 16)}..` : nodeName;
       const fontSize = node.role === "ha" ? 11 : node.radius > 12 ? 9 : 8;
       const iconSize = Math.max(14, Math.round(node.radius * 1.2));
+      const labelAbove = node.labelPosition === "above";
+      const labelY = labelAbove ? node.y - node.radius - 6 : node.y + node.radius + fontSize + 2;
       const glow = node.errors > 10000
         ? `<circle cx="${node.x}" cy="${node.y}" r="${node.radius + 4}" fill="none" stroke="#f4433655" stroke-width="3" />`
         : "";
@@ -642,7 +729,7 @@ class MatterSaverMeshCard extends HTMLElement {
         <g class="mm-node" data-id="${node.id}" style="cursor:${this._nodeCursor(node)};opacity:${opacity}">
           <circle cx="${node.x}" cy="${node.y}" r="${node.radius}" fill="${color}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
           ${this._nodeIconMarkup(node, iconSize)}
-          <text x="${node.x}" y="${node.y + node.radius + fontSize + 2}" text-anchor="middle" fill="var(--primary-text-color, #fff)" font-size="${fontSize}" font-family="inherit">${this._esc(label)}</text>
+          <text x="${node.x}" y="${labelY}" text-anchor="middle" fill="var(--primary-text-color, #fff)" font-size="${fontSize}" font-family="inherit" stroke="var(--card-background-color, #1c1c1c)" stroke-width="3" paint-order="stroke">${this._esc(label)}</text>
         </g>`;
     }
 
@@ -723,6 +810,51 @@ class MatterSaverMeshCard extends HTMLElement {
 
   _linkColor(rssi) {
     return window.MatterSaverCardUtils?.signalInfo(rssi)?.color || "rgba(255,255,255,0.25)";
+  }
+
+  _linkPath(source, target, link) {
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const unitX = dx / length;
+    const unitY = dy / length;
+    const normalX = -unitY;
+    const normalY = unitX;
+    const startX = source.x + unitX * (source.radius + LINK_ENDPOINT_PADDING);
+    const startY = source.y + unitY * (source.radius + LINK_ENDPOINT_PADDING);
+    const endX = target.x - unitX * (target.radius + LINK_ENDPOINT_PADDING);
+    const endY = target.y - unitY * (target.radius + LINK_ENDPOINT_PADDING);
+    const midpointX = (startX + endX) / 2;
+    const midpointY = (startY + endY) / 2;
+    const obstacles = this._nodes.filter((node) => node.id !== source.id
+      && node.id !== target.id
+      && this._distancePointToSegment(node.x, node.y, startX, startY, endX, endY) < node.radius + LINK_NODE_CLEARANCE);
+    const baseCurve = this._viewMode === "logical" && !obstacles.length ? 0 : Math.min(Math.max(length * 0.14, 18), 72);
+    if (!baseCurve) {
+      return `M ${startX} ${startY} L ${endX} ${endY}`;
+    }
+
+    const obstacleBias = obstacles.reduce((sum, node) => (
+      sum + ((node.x - midpointX) * normalX + (node.y - midpointY) * normalY)
+    ), 0);
+    const fallbackSign = String(link.source).localeCompare(String(link.target)) <= 0 ? 1 : -1;
+    const curveSign = obstacleBias === 0 ? fallbackSign : (obstacleBias > 0 ? -1 : 1);
+    const curveAmount = baseCurve + obstacles.length * 14;
+    const controlX = midpointX + normalX * curveAmount * curveSign;
+    const controlY = midpointY + normalY * curveAmount * curveSign;
+    return `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`;
+  }
+
+  _distancePointToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    if (dx === 0 && dy === 0) {
+      return Math.hypot(px - x1, py - y1);
+    }
+    const ratio = Math.max(0, Math.min(1, (((px - x1) * dx) + ((py - y1) * dy)) / ((dx * dx) + (dy * dy))));
+    const projX = x1 + ratio * dx;
+    const projY = y1 + ratio * dy;
+    return Math.hypot(px - projX, py - projY);
   }
 
   _nodeCursor(node) {
