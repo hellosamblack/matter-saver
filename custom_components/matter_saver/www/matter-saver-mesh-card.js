@@ -1,6 +1,10 @@
 // Lowest comparison value so links with real RSSI win during deduplication.
 const DEDUPE_RSSI_SENTINEL = -999;
 const MESH_VIEW_MODES = new Set(["logical", "by_floor", "by_area", "by_floor_area"]);
+const LOCATION_ORDER_FALLBACKS = {
+  floor: "__matter_saver_no_floor__",
+  area: "__matter_saver_no_area__",
+};
 const FALLBACK_HORIZONTAL_SPREAD = 0.5;
 const FALLBACK_VERTICAL_JITTER = 40;
 const NODE_ROLE_ORDER = {
@@ -385,7 +389,7 @@ class MatterSaverMeshCard extends HTMLElement {
   }
 
   _layoutByFloor(width, height, deviceNodes) {
-    const groupMap = this._groupNodes(deviceNodes, (node) => this._floorValue(node));
+    const groupMap = this._groupNodes(deviceNodes, (node) => this._locationGroupKey("floor", node));
     const groups = this._orderedGroups([...groupMap.keys()], this._floorOrder);
     const top = 104;
     const left = 16;
@@ -398,7 +402,7 @@ class MatterSaverMeshCard extends HTMLElement {
       const y = top + index * (bandHeight + gap);
       const region = {
         kind: "floor",
-        label: groupName,
+        label: this._locationGroupLabel("floor", groupName),
         x: left,
         y,
         width: Math.max(width - left * 2, 120),
@@ -410,11 +414,11 @@ class MatterSaverMeshCard extends HTMLElement {
   }
 
   _layoutByArea(width, height, deviceNodes) {
-    const groupMap = this._groupNodes(deviceNodes, (node) => this._areaValue(node));
+    const groupMap = this._groupNodes(deviceNodes, (node) => this._locationGroupKey("area", node));
     const groups = this._orderedGroups([...groupMap.keys()], this._areaOrder);
     const zones = this._gridRegions(groups, width, height, "area", 104);
     zones.forEach((zone) => {
-      this._regions.push(zone);
+      this._regions.push({ ...zone, label: this._locationGroupLabel("area", zone.label) });
       this._layoutNodesInZone(groupMap.get(zone.label) || [], zone, { topInset: 34, sideInset: 16, bottomInset: 16 });
     });
   }
@@ -422,16 +426,16 @@ class MatterSaverMeshCard extends HTMLElement {
   _layoutByFloorAndArea(width, height, deviceNodes) {
     const floorMap = new Map();
     for (const node of deviceNodes) {
-      const floorName = this._floorValue(node);
-      const areaName = this._areaValue(node);
-      if (!floorMap.has(floorName)) {
-        floorMap.set(floorName, new Map());
+      const floorKey = this._locationGroupKey("floor", node);
+      const areaKey = this._locationGroupKey("area", node);
+      if (!floorMap.has(floorKey)) {
+        floorMap.set(floorKey, new Map());
       }
-      const areaMap = floorMap.get(floorName);
-      if (!areaMap.has(areaName)) {
-        areaMap.set(areaName, []);
+      const areaMap = floorMap.get(floorKey);
+      if (!areaMap.has(areaKey)) {
+        areaMap.set(areaKey, []);
       }
-      areaMap.get(areaName).push(node);
+      areaMap.get(areaKey).push(node);
     }
 
     const floors = this._orderedGroups([...floorMap.keys()], this._floorOrder);
@@ -442,11 +446,11 @@ class MatterSaverMeshCard extends HTMLElement {
     const totalHeight = Math.max(height - top - bottom, 140);
     const floorHeight = Math.max((totalHeight - floorGap * Math.max(floors.length - 1, 0)) / Math.max(floors.length, 1), 124);
 
-    floors.forEach((floorName, floorIndex) => {
+    floors.forEach((floorKey, floorIndex) => {
       const y = top + floorIndex * (floorHeight + floorGap);
       const floorRegion = {
         kind: "floor",
-        label: floorName,
+        label: this._locationGroupLabel("floor", floorKey),
         x: left,
         y,
         width: Math.max(width - left * 2, 120),
@@ -454,20 +458,20 @@ class MatterSaverMeshCard extends HTMLElement {
       };
       this._regions.push(floorRegion);
 
-      const areas = this._orderedGroups([...floorMap.get(floorName).keys()], this._areaOrder);
+      const areas = this._orderedGroups([...floorMap.get(floorKey).keys()], this._areaOrder);
       const roomGap = 12;
       const roomWidth = Math.max((floorRegion.width - 24 - roomGap * Math.max(areas.length - 1, 0)) / Math.max(areas.length, 1), 100);
-      areas.forEach((areaName, areaIndex) => {
+      areas.forEach((areaKey, areaIndex) => {
         const roomRegion = {
           kind: "room",
-          label: areaName,
+          label: this._locationGroupLabel("area", areaKey),
           x: floorRegion.x + 12 + areaIndex * (roomWidth + roomGap),
           y: floorRegion.y + 34,
           width: roomWidth,
           height: Math.max(floorRegion.height - 46, 76),
         };
         this._regions.push(roomRegion);
-        this._layoutNodesInZone(floorMap.get(floorName).get(areaName) || [], roomRegion, { topInset: 28, sideInset: 12, bottomInset: 12 });
+        this._layoutNodesInZone(floorMap.get(floorKey).get(areaKey) || [], roomRegion, { topInset: 28, sideInset: 12, bottomInset: 12 });
       });
     });
   }
@@ -559,12 +563,20 @@ class MatterSaverMeshCard extends HTMLElement {
     });
   }
 
-  _floorValue(node) {
-    return node.floor || this._t("noFloor");
+  _locationGroupKey(target, node) {
+    const rawValue = target === "floor" ? node.floor : node.area;
+    const normalized = String(rawValue || "").trim();
+    return normalized || LOCATION_ORDER_FALLBACKS[target];
   }
 
-  _areaValue(node) {
-    return node.area || this._t("noArea");
+  _locationGroupLabel(target, value) {
+    if (value === LOCATION_ORDER_FALLBACKS.floor) {
+      return this._t("noFloor");
+    }
+    if (value === LOCATION_ORDER_FALLBACKS.area) {
+      return this._t("noArea");
+    }
+    return value;
   }
 
   _getDevices(state) {

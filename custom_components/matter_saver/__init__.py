@@ -922,7 +922,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Store RLOC base for routers
             node_info["_rloc_base"] = None
-            if thread_role_val in (5, 6):
+            if thread_role_val in (4, 5, 6):
                 route_table = self._get_matter_attr(attributes, 53, 8, [])
                 if isinstance(route_table, list):
                     # Method 1: own entry has ExtAddr!=0, Allocated, !LinkEstablished
@@ -966,7 +966,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Store router neighbor info (RSSI to other routers)
             node_info["_router_neighbors"] = {}
-            if thread_role_val in (5, 6) and isinstance(neighbor_table, list):
+            if thread_role_val in (4, 5, 6) and isinstance(neighbor_table, list):
                 for nb in neighbor_table:
                     if isinstance(nb, dict) and not nb.get("13", False):
                         nb_rloc = nb.get("2", 0)
@@ -1006,14 +1006,15 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             resolved_parent_rssi = parent_rssi
             resolved_parent_lqi = parent_lqi
             used_recent_parent = False
+            can_use_recent_parent = (
+                n["thread_role"] not in ("router", "leader", "reed")
+                and recent_parent is not None
+                and recent_parent["parent_node_id"] in nodes_by_id
+            )
 
             if parent_rloc is not None and parent_rloc in rloc_to_node:
                 resolved_parent = rloc_to_node[parent_rloc]
-            elif (
-                n["thread_role"] in ("sed", "end_device")
-                and recent_parent is not None
-                and recent_parent["parent_node_id"] in nodes_by_id
-            ):
+            elif can_use_recent_parent:
                 resolved_parent = nodes_by_id[recent_parent["parent_node_id"]]
                 resolved_parent_rssi = recent_parent.get("rssi")
                 resolved_parent_lqi = recent_parent.get("lqi")
@@ -1037,23 +1038,25 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "rssi": None, "lqi": None,
             })
 
-            if n["thread_role"] in ("sed", "end_device"):
+            if (
+                n["thread_role"] not in ("router", "leader", "reed")
+                and resolved_parent is not None
+            ):
                 # Hop 1: parent router
-                if resolved_parent is not None:
-                    pr = resolved_parent
-                    path.append({
-                        "node_id": pr["node_id"],
-                        "name": pr["device_name"],
-                        "role": pr["thread_role"],
-                        "rssi": resolved_parent_rssi,
-                        "lqi": resolved_parent_lqi,
-                    })
-                    self._extend_route_to_leader(
-                        path,
-                        pr.get("_rloc_base"),
-                        leader_rloc_base,
-                        rloc_to_node,
-                    )
+                pr = resolved_parent
+                path.append({
+                    "node_id": pr["node_id"],
+                    "name": pr["device_name"],
+                    "role": pr["thread_role"],
+                    "rssi": resolved_parent_rssi,
+                    "lqi": resolved_parent_lqi,
+                })
+                self._extend_route_to_leader(
+                    path,
+                    pr.get("_rloc_base"),
+                    leader_rloc_base,
+                    rloc_to_node,
+                )
 
             elif n["thread_role"] in ("router", "reed"):
                 self._extend_route_to_leader(
@@ -1078,7 +1081,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             n["signal_lqi"] = None if signal_hop is None else signal_hop.get("lqi")
 
             if (
-                n["thread_role"] in ("sed", "end_device")
+                n["thread_role"] not in ("router", "leader", "reed")
                 and resolved_parent is not None
                 and not used_recent_parent
             ):

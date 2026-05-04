@@ -1,4 +1,8 @@
 const MATTER_SAVER_CARD_TYPE_PREFIX = "custom:";
+const LOCATION_ORDER_FALLBACKS = {
+  floor: "__matter_saver_no_floor__",
+  area: "__matter_saver_no_area__",
+};
 
 const MATTER_SAVER_EDITOR_META = {
   "matter-saver-card": {
@@ -159,16 +163,16 @@ const MATTER_SAVER_EDITOR_META = {
       },
       {
         name: "view_mode",
-        label: "Layout mode",
+        labelKey: "editorLayoutModeLabel",
         type: "select",
         defaultValue: "logical",
-        helper: "Arrange devices by Thread routing or by Home Assistant floor and area placement.",
+        helperKey: "editorLayoutModeHelper",
         section: "data",
         options: [
-          ["logical", "Logical"],
-          ["by_floor", "By Floor"],
-          ["by_area", "By Area"],
-          ["by_floor_area", "By Floor and Area"],
+          { value: "logical", labelKey: "editorLayoutLogical" },
+          { value: "by_floor", labelKey: "editorLayoutByFloor" },
+          { value: "by_area", labelKey: "editorLayoutByArea" },
+          { value: "by_floor_area", labelKey: "editorLayoutByFloorArea" },
         ],
       },
       {
@@ -180,18 +184,18 @@ const MATTER_SAVER_EDITOR_META = {
       },
       {
         name: "floor_order",
-        label: "Floor order",
+        labelKey: "editorFloorOrderLabel",
         type: "location-order",
         target: "floor",
-        helper: "Order floors from top to bottom for By Floor and dollhouse layouts.",
+        helperKey: "editorFloorOrderHelper",
         section: "data",
       },
       {
         name: "area_order",
-        label: "Area order",
+        labelKey: "editorAreaOrderLabel",
         type: "location-order",
         target: "area",
-        helper: "Order rooms from left to right for By Area and dollhouse layouts.",
+        helperKey: "editorAreaOrderHelper",
         section: "data",
       },
       {
@@ -553,16 +557,16 @@ class MatterSaverCardEditor extends HTMLElement {
       return `
         <div class="ms-editor__field" data-field="${this._esc(field.name)}">
           <div class="ms-editor__control"></div>
-          ${field.helper ? `<div class="ms-editor__helper">${this._esc(field.helper)}</div>` : ""}
+          ${this._fieldHelperHtml(field)}
         </div>
       `;
     }
 
     return `
       <div class="ms-editor__field" data-field="${this._esc(field.name)}">
-        <div class="ms-editor__label">${this._esc(field.label)}</div>
+        <div class="ms-editor__label">${this._esc(this._fieldLabel(field))}</div>
         <div class="ms-editor__control"></div>
-        ${field.helper ? `<div class="ms-editor__helper">${this._esc(field.helper)}</div>` : ""}
+        ${this._fieldHelperHtml(field)}
       </div>
     `;
   }
@@ -595,7 +599,7 @@ class MatterSaverCardEditor extends HTMLElement {
       });
 
       const text = document.createElement("span");
-      text.textContent = field.label;
+      text.textContent = this._fieldLabel(field);
 
       label.append(input, text);
       return label;
@@ -609,10 +613,11 @@ class MatterSaverCardEditor extends HTMLElement {
     input.className = "ms-editor__fallback";
 
     if (field.type === "select") {
-      for (const [optionValue, optionLabel] of field.options || []) {
+      for (const optionDef of field.options || []) {
+        const optionValue = Array.isArray(optionDef) ? optionDef[0] : optionDef.value;
         const option = document.createElement("option");
         option.value = optionValue;
-        option.textContent = optionLabel;
+        option.textContent = this._fieldOptionLabel(optionDef);
         input.append(option);
       }
       input.value = String(this._fieldValue(field));
@@ -818,7 +823,7 @@ class MatterSaverCardEditor extends HTMLElement {
 
       const title = document.createElement("div");
       title.className = "ms-editor__order-title";
-      title.textContent = value;
+      title.textContent = this._locationValueLabel(field, value);
 
       const meta = document.createElement("div");
       meta.className = "ms-editor__order-meta";
@@ -836,6 +841,8 @@ class MatterSaverCardEditor extends HTMLElement {
       upButton.className = "ms-editor__order-btn";
       upButton.textContent = "↑";
       upButton.disabled = index === 0;
+      upButton.setAttribute("aria-label", this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) }));
+      upButton.title = this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) });
       upButton.addEventListener("click", () => {
         this._moveLocationValue(field, orderedValues, index, index - 1);
       });
@@ -845,6 +852,8 @@ class MatterSaverCardEditor extends HTMLElement {
       downButton.className = "ms-editor__order-btn";
       downButton.textContent = "↓";
       downButton.disabled = index === orderedValues.length - 1;
+      downButton.setAttribute("aria-label", this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) }));
+      downButton.title = this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) });
       downButton.addEventListener("click", () => {
         this._moveLocationValue(field, orderedValues, index, index + 1);
       });
@@ -861,11 +870,7 @@ class MatterSaverCardEditor extends HTMLElement {
     const savedOrder = this._normalizeLocationValues(this._fieldValue(field));
     const values = new Set(savedOrder);
     for (const device of this._getEditorDevices()) {
-      const rawValue = field.target === "floor" ? device.floor : device.area;
-      const normalized = String(rawValue || "").trim();
-      if (normalized) {
-        values.add(normalized);
-      }
+      values.add(this._extractLocationValue(device, field));
     }
 
     return [...values].sort((left, right) => {
@@ -907,12 +912,51 @@ class MatterSaverCardEditor extends HTMLElement {
     return result?.devices || [];
   }
 
-  _tEditor(key) {
-    return window.MatterSaverCardUtils?.t(this._hass, key) || key;
+  _tEditor(key, vars) {
+    return window.MatterSaverCardUtils?.t(this._hass, key, vars) || key;
   }
 
   _refreshDynamicFields() {
     this._renderExtraFields();
+  }
+
+  _fieldLabel(field) {
+    return field.labelKey ? this._tEditor(field.labelKey) : (field.label || "");
+  }
+
+  _fieldHelper(field) {
+    return field.helperKey ? this._tEditor(field.helperKey) : (field.helper || "");
+  }
+
+  _fieldHelperHtml(field) {
+    const helper = this._fieldHelper(field);
+    return helper ? `<div class="ms-editor__helper">${this._esc(helper)}</div>` : "";
+  }
+
+  _fieldOptionLabel(optionDef) {
+    if (Array.isArray(optionDef)) {
+      return optionDef[1];
+    }
+    if (optionDef.labelKey) {
+      return this._tEditor(optionDef.labelKey);
+    }
+    return optionDef.label || optionDef.value || "";
+  }
+
+  _extractLocationValue(device, field) {
+    const rawValue = field.target === "floor" ? device.floor : device.area;
+    const normalized = String(rawValue || "").trim();
+    return normalized || LOCATION_ORDER_FALLBACKS[field.target];
+  }
+
+  _locationValueLabel(field, value) {
+    if (value === LOCATION_ORDER_FALLBACKS.floor) {
+      return this._tEditor("noFloor");
+    }
+    if (value === LOCATION_ORDER_FALLBACKS.area) {
+      return this._tEditor("noArea");
+    }
+    return value;
   }
 }
 
