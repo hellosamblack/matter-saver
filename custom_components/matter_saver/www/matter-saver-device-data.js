@@ -74,6 +74,9 @@
       date_commissioned: isCompactDevice ? (device.dc || "") : (device.date_commissioned || ""),
       last_interview: isCompactDevice ? (device.li || "") : (device.last_interview || ""),
       battery: isCompactDevice ? device.b : (device.battery ?? device.battery_percent),
+      device_type_ids: isCompactDevice
+        ? (Array.isArray(device.dt) ? device.dt : [])
+        : (Array.isArray(device.device_type_ids) ? device.device_type_ids : []),
     };
   }
 

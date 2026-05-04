@@ -21,6 +21,20 @@ class MatterSaverCard extends HTMLElement {
     this._initialized = false;
     this._devices = [];
     this._deviceDataError = "";
+    this._handleExternalDeviceSelect = (event) => {
+      const nodeId = Number(event?.detail?.nodeId);
+      if (!Number.isFinite(nodeId)) return;
+      if (event?.detail?.entityId && event.detail.entityId !== this._entityId) return;
+      this._showActionPopup(nodeId);
+    };
+  }
+
+  connectedCallback() {
+    window.addEventListener("matter-saver-open-device-details", this._handleExternalDeviceSelect);
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener("matter-saver-open-device-details", this._handleExternalDeviceSelect);
   }
 
   setConfig(config) {
