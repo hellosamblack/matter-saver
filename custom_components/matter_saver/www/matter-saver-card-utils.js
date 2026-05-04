@@ -600,7 +600,7 @@
     const trimmed = normalizedName
       .replace(matcher, "$1")
       .replace(/\s{2,}/g, " ")
-      .replace(/^[\s\-–—:(),/]+|[\s\-–—:(),/]+$/g, "")
+      .replace(/^[\s\-–—:()\[\],/]+|[\s\-–—:()\[\],/]+$/g, "")
       .trim();
 
     return trimmed || normalizedName;
