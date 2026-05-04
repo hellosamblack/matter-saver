@@ -440,6 +440,11 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._recent_parents_dirty = True
 
     @staticmethod
+    def _is_child_device_role(role: str) -> bool:
+        """Return True when the role belongs to a child/end-device."""
+        return role not in ("router", "leader", "reed")
+
+    @staticmethod
     def _extend_route_to_leader(
         path: list[dict[str, Any]],
         start_rloc_base: int | None,
@@ -1007,7 +1012,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             resolved_parent_lqi = parent_lqi
             used_recent_parent = False
             can_use_recent_parent = (
-                n["thread_role"] not in ("router", "leader", "reed")
+                self._is_child_device_role(n["thread_role"])
                 and recent_parent is not None
                 and recent_parent["parent_node_id"] in nodes_by_id
             )
@@ -1039,7 +1044,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             })
 
             if (
-                n["thread_role"] not in ("router", "leader", "reed")
+                self._is_child_device_role(n["thread_role"])
                 and resolved_parent is not None
             ):
                 # Hop 1: parent router
@@ -1081,7 +1086,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             n["signal_lqi"] = None if signal_hop is None else signal_hop.get("lqi")
 
             if (
-                n["thread_role"] not in ("router", "leader", "reed")
+                self._is_child_device_role(n["thread_role"])
                 and resolved_parent is not None
                 and not used_recent_parent
             ):
