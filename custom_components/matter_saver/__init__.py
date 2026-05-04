@@ -298,7 +298,13 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         period: dict[str, Any],
         now_dt: datetime,
     ) -> datetime:
-        """Return the best known end for a stale open offline period."""
+        """Return the best known end for a stale open offline period.
+
+        Older persisted data may contain an open period from a previous Home
+        Assistant session. Reconstruct the last observed end by adding the
+        previously tracked observed duration to the stored start time so the
+        restart gap is not counted as device downtime.
+        """
         start = cls._period_start(period)
         if start is None:
             return now_dt
@@ -319,6 +325,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @staticmethod
     def _stored_observed_minutes(period: dict[str, Any]) -> int:
         """Return the best known observed minutes from persisted history."""
+        # Historical data may contain `observed_minutes` from the old
+        # per-refresh tracking logic. Fall back to `duration_min` for older
+        # closed periods that never stored the observed field explicitly.
         observed_minutes = (
             period["observed_minutes"]
             if "observed_minutes" in period
@@ -383,6 +392,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             if prev is None:
                 if open_period is not None:
+                    # This open period was persisted by an earlier Home
+                    # Assistant session. Close it at the last observed point so
+                    # the restart gap is not attributed as new downtime.
                     stale_end = self._stale_offline_period_end(open_period, now_dt)
                     self._close_offline_period(open_period, stale_end)
                     history_changed = True
