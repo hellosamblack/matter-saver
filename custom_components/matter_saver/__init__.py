@@ -117,13 +117,6 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.offline_history = {
                 int(k): v for k, v in data.get("offline_history", {}).items()
             }
-            for history in self.offline_history.values():
-                for period in history:
-                    if not isinstance(period, dict):
-                        continue
-                    period["observed_minutes"] = int(
-                        period.get("observed_minutes", period.get("duration_min", 0)) or 0
-                    )
             self.auto_recovery_enabled = data.get("auto_recovery", True)
         self._store_loaded = True
 
@@ -348,12 +341,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     open_period = self.offline_history[nid][0]
                     history_changed = True
 
-            if (
-                prev is False
-                and not available
-                and open_period is not None
-                and observed_refresh_minutes > 0
-            ):
+            if prev is False and open_period is not None and observed_refresh_minutes > 0:
                 open_period["observed_minutes"] = int(
                     open_period.get(
                         "observed_minutes", open_period.get("duration_min", 0)
