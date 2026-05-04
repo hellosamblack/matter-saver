@@ -47,6 +47,8 @@
       parent: device.pn || "",
       parent_node_id: device.pi ?? null,
       route_path: [],
+      offline_24h_count: device.c24 ?? 0,
+      offline_24h_minutes: device.m24 ?? 0,
       offline_7d_count: device.c7 ?? 0,
       offline_7d_minutes: device.m7 ?? 0,
       offline_30d_count: device.c30 ?? 0,
