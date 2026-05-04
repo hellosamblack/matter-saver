@@ -89,6 +89,10 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
         encoded["pi"] = node["parent_node_id"]
     if node.get("route_path"):
         encoded["rt"] = _encode_route_path(node["route_path"])
+    if node.get("offline_24h_count"):
+        encoded["c24"] = node["offline_24h_count"]
+    if node.get("offline_24h_minutes"):
+        encoded["m24"] = node["offline_24h_minutes"]
     if node.get("offline_7d_count"):
         encoded["c7"] = node["offline_7d_count"]
     if node.get("offline_7d_minutes"):

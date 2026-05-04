@@ -30,6 +30,8 @@ const MATTER_SAVER_EDITOR_META = {
           ["product", "Product"],
           ["thread_role", "Thread role"],
           ["errors", "Errors"],
+          ["offline_24h_minutes", "24h downtime"],
+          ["offline_7d_minutes", "7d downtime"],
           ["last_seen", "Last seen"],
           ["battery", "Battery"],
         ],

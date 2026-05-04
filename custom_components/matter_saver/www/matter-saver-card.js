@@ -44,7 +44,7 @@ class MatterSaverCard extends HTMLElement {
       return;
     }
     this._lastDataJson = JSON.stringify(state.attributes);
-    const CC = 14;
+    const CC = 16;
 
     this.innerHTML = `
       <ha-card>
@@ -337,12 +337,11 @@ class MatterSaverCard extends HTMLElement {
     if (localizedComment) rows.push([this._t("diagnostics"), localizedComment]);
 
     // Offline history stats
-    if (device.offline_7d_count > 0 || device.offline_30d_count > 0) {
-      const fmt = (min) => min < 60 ? `${min}m` : min < 1440 ? `${Math.round(min/60)}h` : `${(min/1440).toFixed(1)}d`;
+    if (device.offline_24h_count > 0 || device.offline_7d_count > 0) {
+      if (device.offline_24h_count > 0)
+        rows.push([this._t("offline24h"), `${device.offline_24h_count}x, total ${this._formatDowntime(device.offline_24h_minutes)}`]);
       if (device.offline_7d_count > 0)
-        rows.push([this._t("offline7d"), `${device.offline_7d_count}x, total ${fmt(device.offline_7d_minutes)}`]);
-      if (device.offline_30d_count > 0)
-        rows.push([this._t("offline30d"), `${device.offline_30d_count}x, total ${fmt(device.offline_30d_minutes)}`]);
+        rows.push([this._t("offline7d"), `${device.offline_7d_count}x, total ${this._formatDowntime(device.offline_7d_minutes)}`]);
     }
 
     // Get repair history for this node from activity log
@@ -494,7 +493,7 @@ class MatterSaverCard extends HTMLElement {
     let devices = this._getDevices(state);
     const online = state.attributes.online || 0;
     const offline = state.attributes.offline || 0;
-    const CC = 14;
+    const CC = 16;
 
     const statsEl = this.querySelector("#ms-stats");
     if (statsEl) {
@@ -524,6 +523,8 @@ class MatterSaverCard extends HTMLElement {
         ${this._th("battery", this._t("battery"))}
         ${this._th("firmware", this._t("firmware"))}
         ${this._th("errors", this._t("errors"))}
+        ${this._th("offline_24h_minutes", this._t("downtime24h"))}
+        ${this._th("offline_7d_minutes", this._t("downtime7d"))}
         ${this._th("last_seen", this._t("lastSeen"))}
       </tr>`;
     }
@@ -576,7 +577,7 @@ class MatterSaverCard extends HTMLElement {
       let va = a[field]; let vb = b[field];
       if (va == null) va = field === "battery" ? 999 : "";
       if (vb == null) vb = field === "battery" ? 999 : "";
-      if (field === "node_id" || field === "battery" || field === "neighbors" || field === "children" || field === "errors") {
+      if (field === "node_id" || field === "battery" || field === "neighbors" || field === "children" || field === "errors" || field === "offline_24h_minutes" || field === "offline_7d_minutes") {
         va = Number(va) || 0; vb = Number(vb) || 0;
       } else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
       if (va < vb) return asc ? -1 : 1;
@@ -622,6 +623,10 @@ class MatterSaverCard extends HTMLElement {
       case "last_seen":
         if (!device.last_seen) return this._t("neverSeen");
         return this._t("seen");
+      case "offline_24h_minutes":
+        return this._t("downtime24h");
+      case "offline_7d_minutes":
+        return this._t("downtime7d");
       default: return "";
     }
   }
@@ -649,6 +654,8 @@ class MatterSaverCard extends HTMLElement {
       <td>${this._batteryHtml(d.battery)}</td>
       <td>${this._firmwareHtml(d.firmware, d.update_available)}</td>
       <td>${this._errorsHtml(d.errors, this._localizeIssueComment(d.error_comment, d.error_comment_codes))}</td>
+      <td>${this._downtimeHtml(d.offline_24h_minutes)}</td>
+      <td>${this._downtimeHtml(d.offline_7d_minutes)}</td>
       <td>${this._lastSeenHtml(d.last_seen)}</td>
     </tr>`;
   }
@@ -698,6 +705,19 @@ class MatterSaverCard extends HTMLElement {
   _lastSeenHtml(isoStr) {
     if (!isoStr) return `<span class="ms-lastseen">-</span>`;
     return `<span class="ms-lastseen">${this._escHtml(this._relativeTime(isoStr))}</span>`;
+  }
+
+  _formatDowntime(minutes) {
+    const value = Number(minutes) || 0;
+    if (value < 60) return `${value}m`;
+    if (value < 1440) return `${Math.round(value / 60)}h`;
+    return `${(value / 1440).toFixed(1)}d`;
+  }
+
+  _downtimeHtml(minutes) {
+    const value = Number(minutes) || 0;
+    if (value <= 0) return "-";
+    return this._escHtml(this._formatDowntime(value));
   }
 
   _t(key, vars) {

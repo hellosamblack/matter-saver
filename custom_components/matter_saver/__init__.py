@@ -231,6 +231,147 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception:
                     pass  # Don't crash the loop
 
+    @staticmethod
+    def _get_open_offline_period(
+        history: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Return the currently open offline period for a node."""
+        for period in history:
+            if isinstance(period, dict) and period.get("end") is None:
+                return period
+        return None
+
+    @staticmethod
+    def _parse_period_timestamp(value: Any) -> datetime | None:
+        """Parse a stored offline-history timestamp.
+
+        Naive timestamps are treated as UTC so historical data can still be
+        compared with the coordinator's timezone-aware timestamps.
+        """
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    @classmethod
+    def _period_start(cls, period: dict[str, Any]) -> datetime | None:
+        """Return the parsed start timestamp for an offline period."""
+        return cls._parse_period_timestamp(period.get("start"))
+
+    @classmethod
+    def _period_end(
+        cls, period: dict[str, Any], now_dt: datetime
+    ) -> datetime:
+        """Return the parsed end timestamp for an offline period."""
+        end = cls._parse_period_timestamp(period.get("end"))
+        return end or now_dt
+
+    @staticmethod
+    def _seconds_to_minutes(total_seconds: float) -> int:
+        """Convert seconds to rounded minutes for display."""
+        if total_seconds <= 0:
+            return 0
+        return round(total_seconds / 60)
+
+    @classmethod
+    def _close_offline_period(
+        cls,
+        period: dict[str, Any],
+        end_dt: datetime,
+    ) -> None:
+        """Close an offline period at a specific timestamp."""
+        start = cls._period_start(period)
+        if start is not None and end_dt < start:
+            end_dt = start
+        period["end"] = end_dt.isoformat()
+        if start is None:
+            period["duration_min"] = 0
+            return
+        period["duration_min"] = cls._seconds_to_minutes(
+            (end_dt - start).total_seconds()
+        )
+
+    @classmethod
+    def _stale_offline_period_end(
+        cls,
+        period: dict[str, Any],
+        now_dt: datetime,
+    ) -> datetime:
+        """Return the best known end for a stale open offline period.
+
+        Older persisted data may contain an open period from a previous Home
+        Assistant session. Reconstruct the last observed end by adding the
+        previously tracked observed duration to the stored start time so the
+        restart gap is not counted as device downtime. If the stored start is
+        invalid, fall back to ``now_dt`` so the caller can safely close the
+        malformed period without raising.
+        """
+        start = cls._period_start(period)
+        if start is None:
+            return now_dt
+        # Keep supporting historical periods saved before stale-open migration
+        # so existing persisted data is closed at the last known observed point.
+        observed_minutes_int = cls._stored_observed_minutes(period)
+        return start + timedelta(minutes=observed_minutes_int)
+
+    @staticmethod
+    def _start_offline_period(now: str) -> dict[str, Any]:
+        """Create a new open offline period starting now."""
+        return {
+            "start": now,
+            "end": None,
+            "duration_min": 0,
+        }
+
+    @staticmethod
+    def _stored_observed_minutes(period: dict[str, Any]) -> int:
+        """Return the best known observed minutes from persisted history."""
+        # Historical data may contain `observed_minutes` from the old
+        # per-refresh tracking logic. Fall back to `duration_min` for older
+        # closed periods that never stored the observed field explicitly.
+        observed_minutes = period.get("observed_minutes")
+        if observed_minutes is None:
+            observed_minutes = period.get("duration_min", 0)
+        try:
+            return max(0, int(observed_minutes))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _offline_window_stats(
+        history: list[dict[str, Any]],
+        window_start: datetime,
+        now_dt: datetime,
+    ) -> tuple[int, int]:
+        """Calculate downtime event count and attributed minutes for a time window."""
+        count = 0
+        overlap_seconds_total = 0.0
+        for period in history:
+            if not isinstance(period, dict):
+                continue
+            start = MatterSaverCoordinator._period_start(period)
+            if start is None:
+                continue
+            end = MatterSaverCoordinator._period_end(period, now_dt)
+
+            overlap_start = max(start, window_start)
+            overlap_end = min(end, now_dt)
+            overlap_seconds = max((overlap_end - overlap_start).total_seconds(), 0)
+            if overlap_seconds <= 0:
+                continue
+
+            count += 1
+            overlap_seconds_total += overlap_seconds
+
+        return count, MatterSaverCoordinator._seconds_to_minutes(
+            overlap_seconds_total
+        )
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Matter Server."""
         try:
@@ -240,7 +381,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"Error communicating with Matter Server: {err}") from err
 
         # Track status changes + offline history
-        now = datetime.now(timezone.utc).isoformat()
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        history_changed = False
         for node in data.get("nodes", []):
             nid = node["node_id"]
             available = node["available"]
@@ -248,6 +391,25 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             prev = self._previous_status.get(nid)
             problem_codes = tuple(node.get("error_comment_codes", []))
             prev_problem = self._previous_problem.get(nid)
+            history = self.offline_history.setdefault(nid, [])
+            open_period = self._get_open_offline_period(history)
+
+            if prev is None:
+                if open_period is not None:
+                    # This open period was persisted by an earlier Home
+                    # Assistant session. Close it at the last observed point so
+                    # the restart gap is not attributed as new downtime.
+                    stale_end = self._stale_offline_period_end(open_period, now_dt)
+                    self._close_offline_period(open_period, stale_end)
+                    history_changed = True
+                if not available:
+                    # If the node is still offline after startup, begin a new
+                    # runtime-local open period that only tracks downtime we can
+                    # observe in this Home Assistant session.
+                    history.insert(0, self._start_offline_period(now))
+                    self.offline_history[nid] = history[:50]
+                    open_period = self.offline_history[nid][0]
+                    history_changed = True
 
             if prev is not None and prev != available:
                 if available:
@@ -259,14 +421,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         message_key="node_online",
                     )
                     # Close open offline period
-                    if nid in self.offline_history:
-                        for period in self.offline_history[nid]:
-                            if period.get("end") is None:
-                                period["end"] = now
-                                start = datetime.fromisoformat(period["start"])
-                                end = datetime.fromisoformat(now)
-                                period["duration_min"] = int((end - start).total_seconds() / 60)
-                                break
+                    if open_period is not None:
+                        self._close_offline_period(open_period, now_dt)
+                        history_changed = True
                 else:
                     self.add_log(
                         "warning",
@@ -276,13 +433,10 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         message_key="node_offline",
                     )
                     # Start new offline period
-                    if nid not in self.offline_history:
-                        self.offline_history[nid] = []
-                    self.offline_history[nid].insert(0, {
-                        "start": now, "end": None, "duration_min": 0,
-                    })
+                    history.insert(0, self._start_offline_period(now))
                     # Keep max 50 entries per node
-                    self.offline_history[nid] = self.offline_history[nid][:50]
+                    self.offline_history[nid] = history[:50]
+                    history_changed = True
 
             if prev_problem is not None and prev_problem != problem_codes:
                 problem_text = _render_error_comment_en(list(problem_codes))
@@ -320,26 +474,25 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for node in data.get("nodes", []):
             nid = node["node_id"]
             history = self.offline_history.get(nid, [])
-            now_dt = datetime.now(timezone.utc)
-            week_ago = (now_dt - timedelta(days=7)).isoformat()
-            month_ago = (now_dt - timedelta(days=30)).isoformat()
+            day_count, day_minutes = self._offline_window_stats(
+                history, now_dt - timedelta(days=1), now_dt
+            )
+            week_count, week_minutes = self._offline_window_stats(
+                history, now_dt - timedelta(days=7), now_dt
+            )
+            month_count, month_minutes = self._offline_window_stats(
+                history, now_dt - timedelta(days=30), now_dt
+            )
 
-            week_events = [h for h in history if h["start"] >= week_ago]
-            month_events = [h for h in history if h["start"] >= month_ago]
-            week_dur = sum(h.get("duration_min", 0) for h in week_events)
-            month_dur = sum(h.get("duration_min", 0) for h in month_events)
+            node["offline_24h_count"] = day_count
+            node["offline_24h_minutes"] = day_minutes
+            node["offline_7d_count"] = week_count
+            node["offline_7d_minutes"] = week_minutes
+            node["offline_30d_count"] = month_count
+            node["offline_30d_minutes"] = month_minutes
 
-            # Check if currently in an open offline period
-            if history and history[0].get("end") is None:
-                start = datetime.fromisoformat(history[0]["start"])
-                week_dur += int((now_dt - start).total_seconds() / 60)
-                month_dur += int((now_dt - start).total_seconds() / 60)
-
-            node["offline_7d_count"] = len(week_events)
-            node["offline_7d_minutes"] = week_dur
-            node["offline_30d_count"] = len(month_events)
-            node["offline_30d_minutes"] = month_dur
-
+        if history_changed:
+            self.hass.async_create_task(self._async_save_log())
         data["activity_log"] = self.activity_log
         return data
 
@@ -411,6 +564,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "battery_percent": None, "power_source": "unknown",
                 "parent_node_id": None, "parent_name": "",
                 "route_path": [], "last_seen": self._last_seen.get(node_id, ""),
+                "offline_24h_count": 0, "offline_24h_minutes": 0,
                 "offline_7d_count": 0, "offline_7d_minutes": 0,
                 "offline_30d_count": 0, "offline_30d_minutes": 0,
             })
@@ -1005,7 +1159,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
     async def handle_reset_counters(call: ServiceCall) -> None:
         """Reset Thread diagnostic counters for a node."""
         node_id = call.data["node_id"]
-        result = await _run_action(node_id, "reset", "send_command", {
+        result = await _run_action(node_id, "reset", "device_command", {
             "node_id": node_id, "endpoint_id": 0,
             "cluster_id": 53, "command_name": "ResetCounts", "payload": {},
         })
