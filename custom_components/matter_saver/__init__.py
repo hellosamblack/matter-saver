@@ -15,6 +15,10 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
+try:
+    from homeassistant.helpers import floor_registry as fr
+except ImportError:  # pragma: no cover - compatibility for older HA versions
+    fr = None
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -678,6 +682,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "node_id": node_id,
                 "device_name": self._get_matter_attr(attributes, 40, 3, ""),
                 "area": "",
+                "floor": "",
                 "available": available,
                 "product_name": self._get_matter_attr(attributes, 40, 3, ""),
                 "vendor_name": self._get_matter_attr(attributes, 40, 1, ""),
@@ -718,11 +723,22 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         dev_reg = dr.async_get(self.hass)
         ent_reg = er.async_get(self.hass)
         area_reg = ar.async_get(self.hass)
+        floor_reg = fr.async_get(self.hass) if fr is not None else None
 
-        # Build area_id -> area_name lookup
-        area_names: dict[str, str] = {}
+        floor_names: dict[str, str] = {}
+        if floor_reg is not None:
+            for floor in floor_reg.async_list_floors():
+                floor_id = getattr(floor, "floor_id", "")
+                if floor_id:
+                    floor_names[floor_id] = floor.name
+
+        # Build area_id -> area details lookup
+        area_details: dict[str, dict[str, str]] = {}
         for area in area_reg.async_list_areas():
-            area_names[area.id] = area.name
+            area_details[area.id] = {
+                "name": area.name,
+                "floor": floor_names.get(getattr(area, "floor_id", ""), ""),
+            }
 
         # Build device_id -> update_available lookup
         update_available: dict[str, bool] = {}
@@ -742,9 +758,11 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if len(parts) >= 2:
                     try:
                         node_id = int(parts[1], 16)
+                        area_info = area_details.get(device.area_id, {}) if device.area_id else {}
                         node_map[node_id] = {
                             "name": device.name_by_user or device.name or "",
-                            "area": area_names.get(device.area_id, "") if device.area_id else "",
+                            "area": area_info.get("name", ""),
+                            "floor": area_info.get("floor", ""),
                             "update_available": update_available.get(device.id, False),
                         }
                     except (ValueError, IndexError):
@@ -787,6 +805,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "node_id": node_id,
                 "device_name": device_info.get("name", ""),
                 "area": device_info.get("area", ""),
+                "floor": device_info.get("floor", ""),
                 "update_available": device_info.get("update_available", False),
                 "available": available,
                 "vendor_name": self._get_matter_attr(attributes, 40, 1, ""),

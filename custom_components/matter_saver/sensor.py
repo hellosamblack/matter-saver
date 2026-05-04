@@ -64,6 +64,7 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
 
     optional_fields = (
         ("a", node.get("area")),
+        ("fl", node.get("floor")),
         ("p", node.get("product_name")),
         ("v", node.get("vendor_name")),
         ("nl", node.get("node_label")),

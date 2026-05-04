@@ -87,9 +87,9 @@ title: Matter Devices
 | `matter-saver-card` | Main device table with sorting, grouping, search, signal strength, route popup, tabbed device details, and visual editor support |
 | `matter-saver-log-card` | Activity log with filtering, relative timestamps, and visual editor support |
 | `matter-saver-topology-card` | Thread topology tree grouped by routers and their child devices |
-| `matter-saver-mesh-card` | Interactive Thread mesh network visualization with signal-colored links |
+| `matter-saver-mesh-card` | Interactive Thread mesh visualization with logical, floor, area, and dollhouse-style location views |
 
-The visual editor exposes card-specific options such as title overrides, default sorting and filters, topology or legend visibility, log entry limits, and mesh graph height, while preserving Home Assistant's built-in `Visibility` and `Layout` controls.
+The visual editor exposes card-specific options such as title overrides, default sorting and filters, topology or legend visibility, log entry limits, mesh layout mode, floor/area ordering, and graph height, while preserving Home Assistant's built-in `Visibility` and `Layout` controls.
 
 ## Services
 
