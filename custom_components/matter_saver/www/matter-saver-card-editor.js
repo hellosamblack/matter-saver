@@ -803,8 +803,8 @@ class MatterSaverCardEditor extends HTMLElement {
       const empty = document.createElement("div");
       empty.className = "ms-editor__order-empty";
       empty.textContent = field.target === "floor"
-        ? "No floors detected on the selected devices yet."
-        : "No areas detected on the selected devices yet.";
+        ? this._tEditor("editorNoFloorsDetected")
+        : this._tEditor("editorNoAreasDetected");
       wrapper.append(empty);
       return wrapper;
     }
@@ -823,8 +823,8 @@ class MatterSaverCardEditor extends HTMLElement {
       const meta = document.createElement("div");
       meta.className = "ms-editor__order-meta";
       meta.textContent = field.target === "floor"
-        ? "Top to bottom"
-        : "Left to right";
+        ? this._tEditor("editorTopToBottom")
+        : this._tEditor("editorLeftToRight");
 
       labelWrap.append(title, meta);
 
@@ -905,6 +905,10 @@ class MatterSaverCardEditor extends HTMLElement {
     }
     const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-card-editor", this._hass);
     return result?.devices || [];
+  }
+
+  _tEditor(key) {
+    return window.MatterSaverCardUtils?.t(this._hass, key) || key;
   }
 }
 

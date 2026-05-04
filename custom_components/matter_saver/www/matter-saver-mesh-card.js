@@ -1,6 +1,8 @@
 // Lowest comparison value so links with real RSSI win during deduplication.
 const DEDUPE_RSSI_SENTINEL = -999;
 const MESH_VIEW_MODES = new Set(["logical", "by_floor", "by_area", "by_floor_area"]);
+const FALLBACK_HORIZONTAL_SPREAD = 0.5;
+const FALLBACK_VERTICAL_JITTER = 40;
 const NODE_ROLE_ORDER = {
   leader: 0,
   router: 1,
@@ -331,7 +333,7 @@ class MatterSaverMeshCard extends HTMLElement {
     const routerRadius = Math.min(width, height) * 0.3;
     routers.forEach((router, index) => {
       if (router.fixed) return;
-      const angle = (2 * Math.PI * index) / Math.max(routers.length, 1) - Math.PI / 2;
+      const angle = (2 * Math.PI * index) / routers.length - Math.PI / 2;
       router.x = centerX + routerRadius * Math.cos(angle);
       router.y = centerY + routerRadius * Math.sin(angle);
     });
@@ -350,8 +352,8 @@ class MatterSaverMeshCard extends HTMLElement {
         endDevice.x = parent.x + distance * Math.cos(angle);
         endDevice.y = parent.y + distance * Math.sin(angle);
       } else {
-        endDevice.x = centerX + (Math.random() - 0.5) * width * 0.5;
-        endDevice.y = height * 0.85 + (Math.random() - 0.5) * 40;
+        endDevice.x = centerX + (Math.random() - 0.5) * width * FALLBACK_HORIZONTAL_SPREAD;
+        endDevice.y = height * 0.85 + (Math.random() - 0.5) * FALLBACK_VERTICAL_JITTER;
       }
     }
   }
@@ -616,7 +618,7 @@ class MatterSaverMeshCard extends HTMLElement {
         : "";
 
       html += `${glow}
-        <g class="mm-node" data-id="${node.id}" style="cursor:${this._viewMode === "logical" && node.id !== "ha" ? "grab" : "pointer"};opacity:${opacity}">
+        <g class="mm-node" data-id="${node.id}" style="cursor:${this._nodeCursor(node)};opacity:${opacity}">
           <circle cx="${node.x}" cy="${node.y}" r="${node.radius}" fill="${color}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
           <text x="${node.x}" y="${node.y + node.radius + fontSize + 2}" text-anchor="middle" fill="var(--primary-text-color, #fff)" font-size="${fontSize}" font-family="inherit">${this._esc(label)}</text>
         </g>`;
@@ -694,6 +696,10 @@ class MatterSaverMeshCard extends HTMLElement {
 
   _linkColor(rssi) {
     return window.MatterSaverCardUtils?.signalInfo(rssi)?.color || "rgba(255,255,255,0.25)";
+  }
+
+  _nodeCursor(node) {
+    return this._viewMode === "logical" && node.id !== "ha" ? "grab" : "pointer";
   }
 
   _roleLabel(role) {
