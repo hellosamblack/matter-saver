@@ -202,6 +202,7 @@ class MatterSaverCard extends HTMLElement {
           .ms-detail-table td { padding: 7px 8px; border-bottom: 1px solid var(--divider-color, rgba(255,255,255,0.06)); vertical-align: top; }
           .ms-detail-table tr:last-child td { border-bottom: none; }
           .ms-detail-table td:first-child { width: 180px; color: var(--secondary-text-color, #999); }
+          .ms-detail-table td:last-child { white-space: pre-wrap; word-break: break-word; }
           .ms-actions-pane { display: flex; flex-direction: column; gap: 14px; }
           .ms-history-empty { color: var(--secondary-text-color, #999); font-size: 0.9em; }
         </style>
@@ -410,6 +411,7 @@ class MatterSaverCard extends HTMLElement {
       historyHtml = `<div class="ms-history-empty">${this._escHtml(this._t("noHistory"))}</div>`;
     }
 
+    const diagnosticsSummary = localizedComment || this._t("noErrors");
     const tabs = [
       {
         id: "overview",
@@ -417,15 +419,15 @@ class MatterSaverCard extends HTMLElement {
         html: this._detailTable([
           [this._t("nodeId"), device.node_id],
           [this._t("name"), device.name || `Node ${device.node_id}`],
-          [this._t("label"), device.node_label || "-"],
-          [this._t("vendor"), device.vendor || "-"],
-          [this._t("product"), device.product || "-"],
-          [this._t("serialNumber"), device.serial_number || "-"],
-          [this._t("area"), device.area || "-"],
+          [this._t("label"), this._textOrFallback(device.node_label)],
+          [this._t("vendor"), this._textOrFallback(device.vendor)],
+          [this._t("product"), this._textOrFallback(device.product)],
+          [this._t("serialNumber"), this._textOrFallback(device.serial_number)],
+          [this._t("area"), this._textOrFallback(device.area)],
           [this._t("status"), this._statusLabel(device.status)],
           [this._t("power"), this._powerLabel(device.power)],
-          [this._t("battery"), device.battery != null ? `${Math.round(device.battery)}%` : "-"],
-          [this._t("firmware"), device.firmware || "-"],
+          [this._t("battery"), this._formatBatteryValue(device.battery)],
+          [this._t("firmware"), this._textOrFallback(device.firmware)],
           [this._t("update"), device.update_available ? this._t("updateAvailable") : this._t("upToDate")],
         ]),
       },
@@ -434,32 +436,43 @@ class MatterSaverCard extends HTMLElement {
         label: this._t("threadTab"),
         html: this._detailTable([
           [this._t("thread"), this._threadRoleLabel(device.thread_role)],
-          [this._t("parent"), device.parent || "-"],
+          [this._t("parent"), this._textOrFallback(device.parent)],
+          [this._t("parentNodeId"), this._numberOrFallback(device.parent_node_id)],
+          [this._t("signalQuality"), this._signalLabel(device.signal_rssi)],
           [this._t("signal"), this._formatSignal(device.signal_rssi, device.signal_lqi)],
-          [this._t("neighbors"), device.neighbors || 0],
-          [this._t("children"), device.children || 0],
+          [this._t("signalRssi"), this._numberWithUnit(device.signal_rssi, "dBm")],
+          [this._t("signalLqi"), this._numberWithUnit(device.signal_lqi, "/3")],
+          [this._t("neighbors"), this._numberOrFallback(device.neighbors, 0)],
+          [this._t("children"), this._numberOrFallback(device.children, 0)],
+          [this._t("routeHopCount"), this._routeHopCount(device)],
           [this._t("routePath"), this._routePathText(device)],
-          [this._t("lastSeen"), this._formatTimestamp(device.last_seen, true)],
-          [this._t("lastInterview"), this._formatTimestamp(device.last_interview)],
-          [this._t("commissioned"), this._formatTimestamp(device.date_commissioned)],
+          [this._t("routeDetails"), this._routeDetailsText(device)],
         ]),
       },
       {
         id: "diagnostics",
         label: this._t("diagnosticsTab"),
         html: this._detailTable([
-          [this._t("errors"), device.errors ? device.errors.toLocaleString() : "0"],
-          [this._t("txRetries"), device.tx_retries ? device.tx_retries.toLocaleString() : "0"],
-          [this._t("diagnostics"), localizedComment || "-"],
-          [this._t("offline24h"), `${device.offline_24h_count || 0}x, ${this._formatDowntime(device.offline_24h_minutes)}`],
-          [this._t("offline7d"), `${device.offline_7d_count || 0}x, ${this._formatDowntime(device.offline_7d_minutes)}`],
-          [this._t("offline30d"), `${device.offline_30d_count || 0}x, ${this._formatDowntime(device.offline_30d_minutes)}`],
+          [this._t("errors"), this._countValue(device.errors)],
+          [this._t("txRetries"), this._countValue(device.tx_retries)],
+          [this._t("diagnostics"), diagnosticsSummary],
+          [this._t("issueCodes"), this._formatIssueCodes(device.error_comment_codes)],
+          [this._t("offline24hCount"), this._countValue(device.offline_24h_count)],
+          [this._t("offline24hDuration"), this._formatDowntime(device.offline_24h_minutes)],
+          [this._t("offline7dCount"), this._countValue(device.offline_7d_count)],
+          [this._t("offline7dDuration"), this._formatDowntime(device.offline_7d_minutes)],
+          [this._t("offline30dCount"), this._countValue(device.offline_30d_count)],
+          [this._t("offline30dDuration"), this._formatDowntime(device.offline_30d_minutes)],
         ]),
       },
       {
         id: "history",
         label: this._t("historyTab"),
-        html: historyHtml,
+        html: `${this._detailTable([
+          [this._t("lastSeen"), this._formatTimestamp(device.last_seen, true)],
+          [this._t("lastInterview"), this._formatTimestamp(device.last_interview)],
+          [this._t("commissioned"), this._formatTimestamp(device.date_commissioned)],
+        ])}${historyHtml}`,
       },
       {
         id: "actions",
@@ -468,8 +481,11 @@ class MatterSaverCard extends HTMLElement {
           ${suggestion}
           <div class="ms-action-details">${this._detailTable([
             [this._t("status"), this._statusLabel(device.status)],
+            [this._t("thread"), this._threadRoleLabel(device.thread_role)],
+            [this._t("parent"), this._textOrFallback(device.parent)],
+            [this._t("signalQuality"), this._signalLabel(device.signal_rssi)],
             [this._t("signal"), this._formatSignal(device.signal_rssi, device.signal_lqi)],
-            [this._t("diagnostics"), localizedComment || "-"],
+            [this._t("diagnostics"), diagnosticsSummary],
           ])}</div>
           <div class="ms-action-buttons" id="ms-action-buttons">
             <button class="ms-action-btn ping" data-action="ping" data-node="${nodeId}">\uD83C\uDFD3 ${this._escHtml(this._actionLabel("ping"))}</button>
@@ -521,6 +537,46 @@ class MatterSaverCard extends HTMLElement {
     ).join("")}</table>`;
   }
 
+  _textOrFallback(value) {
+    return value ? String(value) : this._t("notAvailable");
+  }
+
+  _countValue(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return this._t("notAvailable");
+    return numeric.toLocaleString();
+  }
+
+  _numberOrFallback(value, fallback = null) {
+    if (value === null || value === undefined || value === "") {
+      return fallback !== null ? Number(fallback).toLocaleString() : this._t("notAvailable");
+    }
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric.toLocaleString();
+    if (fallback !== null) return Number(fallback).toLocaleString();
+    return this._t("notAvailable");
+  }
+
+  _numberWithUnit(value, unit) {
+    if (value === null || value === undefined || value === "") return this._t("notAvailable");
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return this._t("notAvailable");
+    return unit.startsWith("/") ? `${numeric}${unit}` : `${numeric} ${unit}`;
+  }
+
+  _formatBatteryValue(battery) {
+    if (battery == null || Number.isNaN(Number(battery))) return this._t("notAvailable");
+    return `${Math.round(Number(battery))}%`;
+  }
+
+  _formatIssueCodes(codes) {
+    if (!Array.isArray(codes) || codes.length === 0) return this._t("notAvailable");
+    return codes.map((code) => {
+      const localized = this._localizeIssueComment("", [code]) || code;
+      return `${localized} (${code})`;
+    }).join("\n");
+  }
+
   _signalInfo(rssi) {
     return window.MatterSaverCardUtils?.signalInfo(rssi) || { level: "unknown", color: "rgba(255,255,255,0.25)" };
   }
@@ -569,12 +625,32 @@ class MatterSaverCard extends HTMLElement {
     return Array.isArray(device?.route_path) && device.route_path.length > 1;
   }
 
+  _routeHopCount(device) {
+    return this._hasRoutePath(device)
+      ? String(Math.max(device.route_path.length - 1, 0))
+      : this._t("notAvailable");
+  }
+
   _routePathText(device) {
-    if (!this._hasRoutePath(device)) return "-";
+    if (!this._hasRoutePath(device)) return this._t("notAvailable");
     return device.route_path.map((hop) => (
       hop?.name
       || (hop?.node_id == null ? this._t("homeAssistant") : `Node ${hop.node_id}`)
     )).join(" → ");
+  }
+
+  _routeDetailsText(device) {
+    if (!this._hasRoutePath(device)) return this._t("notAvailable");
+    return device.route_path.map((hop, index) => {
+      const name = hop?.name
+        || (hop?.node_id == null ? this._t("homeAssistant") : `Node ${hop.node_id}`);
+      const nodeId = hop?.node_id == null ? this._t("homeAssistant") : `${this._t("node")} ${hop.node_id}`;
+      const role = hop?.role === "ha"
+        ? this._t("homeAssistant")
+        : this._threadRoleLabel(hop?.role);
+      const signal = this._formatSignal(hop?.rssi, hop?.lqi);
+      return `${index + 1}. ${name} (${nodeId}) — ${role} — ${signal}`;
+    }).join("\n");
   }
 
   async _executeAction(action, nodeId) {
