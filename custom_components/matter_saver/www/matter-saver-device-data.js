@@ -39,6 +39,7 @@
       node_id: nodeId,
       name,
       area: isCompactDevice ? (device.a || "") : (device.area || ""),
+      floor: isCompactDevice ? (device.fl || "") : (device.floor || ""),
       product,
       vendor: isCompactDevice ? (device.v || "") : (device.vendor || device.vendor_name || ""),
       node_label: nodeLabel,

@@ -158,11 +158,41 @@ const MATTER_SAVER_EDITOR_META = {
         section: "appearance",
       },
       {
+        name: "view_mode",
+        labelKey: "editorLayoutModeLabel",
+        type: "select",
+        defaultValue: "logical",
+        helperKey: "editorLayoutModeHelper",
+        section: "data",
+        options: [
+          { value: "logical", labelKey: "editorLayoutLogical" },
+          { value: "by_floor", labelKey: "editorLayoutByFloor" },
+          { value: "by_area", labelKey: "editorLayoutByArea" },
+          { value: "by_floor_area", labelKey: "editorLayoutByFloorArea" },
+        ],
+      },
+      {
         name: "show_legend",
         label: "Show legend",
         type: "boolean",
         defaultValue: true,
         section: "appearance",
+      },
+      {
+        name: "floor_order",
+        labelKey: "editorFloorOrderLabel",
+        type: "location-order",
+        target: "floor",
+        helperKey: "editorFloorOrderHelper",
+        section: "data",
+      },
+      {
+        name: "area_order",
+        labelKey: "editorAreaOrderLabel",
+        type: "location-order",
+        target: "area",
+        helperKey: "editorAreaOrderHelper",
+        section: "data",
       },
       {
         name: "height",
@@ -336,6 +366,61 @@ class MatterSaverCardEditor extends HTMLElement {
           font-size: 0.8rem;
           line-height: 1.4;
         }
+        .ms-editor__order-list {
+          display: grid;
+          gap: 8px;
+        }
+        .ms-editor__order-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: 1px solid var(--divider-color, rgba(255,255,255,0.12));
+          background: color-mix(in srgb, var(--card-background-color, transparent) 95%, var(--primary-text-color, #fff) 5%);
+        }
+        .ms-editor__order-label {
+          display: grid;
+          gap: 2px;
+          min-width: 0;
+        }
+        .ms-editor__order-title {
+          color: var(--primary-text-color);
+          font-weight: 500;
+          word-break: break-word;
+        }
+        .ms-editor__order-meta {
+          color: var(--secondary-text-color);
+          font-size: 0.75rem;
+        }
+        .ms-editor__order-actions {
+          display: flex;
+          gap: 6px;
+          flex-shrink: 0;
+        }
+        .ms-editor__order-btn {
+          border: 1px solid var(--divider-color, rgba(255,255,255,0.16));
+          background: var(--card-background-color, transparent);
+          color: var(--primary-text-color);
+          border-radius: 8px;
+          width: 32px;
+          height: 32px;
+          cursor: pointer;
+          font: inherit;
+        }
+        .ms-editor__order-btn:disabled {
+          opacity: 0.4;
+          cursor: default;
+        }
+        .ms-editor__order-empty {
+          color: var(--secondary-text-color);
+          font-size: 0.85rem;
+          line-height: 1.5;
+          padding: 12px;
+          border-radius: 10px;
+          border: 1px dashed var(--divider-color, rgba(255,255,255,0.12));
+        }
         .ms-editor__advanced {
           border: 1px solid var(--divider-color, rgba(255,255,255,0.12));
           border-radius: 14px;
@@ -468,16 +553,16 @@ class MatterSaverCardEditor extends HTMLElement {
       return `
         <div class="ms-editor__field" data-field="${this._esc(field.name)}">
           <div class="ms-editor__control"></div>
-          ${field.helper ? `<div class="ms-editor__helper">${this._esc(field.helper)}</div>` : ""}
+          ${this._fieldHelperHtml(field)}
         </div>
       `;
     }
 
     return `
       <div class="ms-editor__field" data-field="${this._esc(field.name)}">
-        <div class="ms-editor__label">${this._esc(field.label)}</div>
+        <div class="ms-editor__label">${this._esc(this._fieldLabel(field))}</div>
         <div class="ms-editor__control"></div>
-        ${field.helper ? `<div class="ms-editor__helper">${this._esc(field.helper)}</div>` : ""}
+        ${this._fieldHelperHtml(field)}
       </div>
     `;
   }
@@ -494,6 +579,10 @@ class MatterSaverCardEditor extends HTMLElement {
   }
 
   _createFieldControl(field) {
+    if (field.type === "location-order") {
+      return this._createLocationOrderControl(field);
+    }
+
     if (field.type === "boolean") {
       const label = document.createElement("label");
       label.className = "ms-editor__checkbox";
@@ -506,7 +595,7 @@ class MatterSaverCardEditor extends HTMLElement {
       });
 
       const text = document.createElement("span");
-      text.textContent = field.label;
+      text.textContent = this._fieldLabel(field);
 
       label.append(input, text);
       return label;
@@ -520,10 +609,11 @@ class MatterSaverCardEditor extends HTMLElement {
     input.className = "ms-editor__fallback";
 
     if (field.type === "select") {
-      for (const [optionValue, optionLabel] of field.options || []) {
+      for (const optionDef of field.options || []) {
+        const optionValue = Array.isArray(optionDef) ? optionDef[0] : optionDef.value;
         const option = document.createElement("option");
         option.value = optionValue;
-        option.textContent = optionLabel;
+        option.textContent = this._fieldOptionLabel(optionDef);
         input.append(option);
       }
       input.value = String(this._fieldValue(field));
@@ -591,6 +681,10 @@ class MatterSaverCardEditor extends HTMLElement {
     if (picker.value !== value) {
       picker.value = value;
     }
+
+    if (this._initialized) {
+      this._refreshDynamicFields();
+    }
   }
 
   _fieldValue(field) {
@@ -619,6 +713,9 @@ class MatterSaverCardEditor extends HTMLElement {
     }
 
     this._config = nextConfig;
+    if (this._initialized) {
+      this._refreshDynamicFields();
+    }
     this.dispatchEvent(new CustomEvent("config-changed", {
       detail: { config: nextConfig },
       bubbles: true,
@@ -641,6 +738,9 @@ class MatterSaverCardEditor extends HTMLElement {
     }
 
     this._config = nextConfig;
+    if (field.type === "location-order" && this._initialized) {
+      this._refreshDynamicFields();
+    }
     this.dispatchEvent(new CustomEvent("config-changed", {
       detail: { config: nextConfig },
       bubbles: true,
@@ -649,6 +749,13 @@ class MatterSaverCardEditor extends HTMLElement {
   }
 
   _normalizeFieldValue(field, rawValue) {
+    if (field.type === "location-order") {
+      const values = Array.isArray(rawValue)
+        ? rawValue.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+      return values.length ? values : undefined;
+    }
+
     if (field.type === "boolean") {
       if (rawValue === field.defaultValue) {
         return undefined;
@@ -686,6 +793,173 @@ class MatterSaverCardEditor extends HTMLElement {
     const div = document.createElement("div");
     div.textContent = str || "";
     return div.innerHTML;
+  }
+
+  _createLocationOrderControl(field) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "ms-editor__order-list";
+
+    const orderedValues = this._orderedLocationValues(field);
+    if (!orderedValues.length) {
+      const empty = document.createElement("div");
+      empty.className = "ms-editor__order-empty";
+      empty.textContent = field.target === "floor"
+        ? this._tEditor("editorNoFloorsDetected")
+        : this._tEditor("editorNoAreasDetected");
+      wrapper.append(empty);
+      return wrapper;
+    }
+
+    orderedValues.forEach((value, index) => {
+      const row = document.createElement("div");
+      row.className = "ms-editor__order-item";
+
+      const labelWrap = document.createElement("div");
+      labelWrap.className = "ms-editor__order-label";
+
+      const title = document.createElement("div");
+      title.className = "ms-editor__order-title";
+      title.textContent = this._locationValueLabel(field, value);
+
+      const meta = document.createElement("div");
+      meta.className = "ms-editor__order-meta";
+      meta.textContent = field.target === "floor"
+        ? this._tEditor("editorTopToBottom")
+        : this._tEditor("editorLeftToRight");
+
+      labelWrap.append(title, meta);
+
+      const actions = document.createElement("div");
+      actions.className = "ms-editor__order-actions";
+
+      const upButton = document.createElement("button");
+      upButton.type = "button";
+      upButton.className = "ms-editor__order-btn";
+      upButton.textContent = "↑";
+      upButton.disabled = index === 0;
+      const upLabel = this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) });
+      upButton.setAttribute("aria-label", upLabel);
+      upButton.title = upLabel;
+      upButton.addEventListener("click", () => {
+        this._moveLocationValue(field, orderedValues, index, index - 1);
+      });
+
+      const downButton = document.createElement("button");
+      downButton.type = "button";
+      downButton.className = "ms-editor__order-btn";
+      downButton.textContent = "↓";
+      downButton.disabled = index === orderedValues.length - 1;
+      const downLabel = this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) });
+      downButton.setAttribute("aria-label", downLabel);
+      downButton.title = downLabel;
+      downButton.addEventListener("click", () => {
+        this._moveLocationValue(field, orderedValues, index, index + 1);
+      });
+
+      actions.append(upButton, downButton);
+      row.append(labelWrap, actions);
+      wrapper.append(row);
+    });
+
+    return wrapper;
+  }
+
+  _orderedLocationValues(field) {
+    const savedOrder = this._normalizeLocationValues(this._fieldValue(field));
+    const values = new Set(savedOrder);
+    for (const device of this._getEditorDevices()) {
+      values.add(this._extractLocationValue(device, field));
+    }
+
+    return [...values].sort((left, right) => {
+      const leftIndex = savedOrder.indexOf(left);
+      const rightIndex = savedOrder.indexOf(right);
+      if (leftIndex !== -1 || rightIndex !== -1) {
+        if (leftIndex === -1) return 1;
+        if (rightIndex === -1) return -1;
+        return leftIndex - rightIndex;
+      }
+      return left.localeCompare(right);
+    });
+  }
+
+  _moveLocationValue(field, values, fromIndex, toIndex) {
+    if (toIndex < 0 || toIndex >= values.length) {
+      return;
+    }
+    const nextValues = [...values];
+    const [moved] = nextValues.splice(fromIndex, 1);
+    nextValues.splice(toIndex, 0, moved);
+    this._updateField(field, nextValues);
+  }
+
+  _normalizeLocationValues(values) {
+    if (!Array.isArray(values)) {
+      return [];
+    }
+    return values.map((value) => String(value || "").trim()).filter(Boolean);
+  }
+
+  _getEditorDevices() {
+    const entityId = this._config.entity || this._meta().defaultEntity;
+    const state = this._hass?.states?.[entityId];
+    if (!state) {
+      return [];
+    }
+    const result = window.MatterSaverCardUtils?.getDevices(state, "matter-saver-card-editor", this._hass);
+    return result?.devices || [];
+  }
+
+  _tEditor(key, vars) {
+    return window.MatterSaverCardUtils?.t(this._hass, key, vars) || key;
+  }
+
+  _refreshDynamicFields() {
+    this._renderExtraFields();
+  }
+
+  _fieldLabel(field) {
+    return field.labelKey ? this._tEditor(field.labelKey) : (field.label || "");
+  }
+
+  _fieldHelper(field) {
+    return field.helperKey ? this._tEditor(field.helperKey) : (field.helper || "");
+  }
+
+  _fieldHelperHtml(field) {
+    const helper = this._fieldHelper(field);
+    return helper ? `<div class="ms-editor__helper">${this._esc(helper)}</div>` : "";
+  }
+
+  _fieldOptionLabel(optionDef) {
+    if (Array.isArray(optionDef)) {
+      return optionDef[1];
+    }
+    if (optionDef.labelKey) {
+      return this._tEditor(optionDef.labelKey);
+    }
+    return optionDef.label || optionDef.value || "";
+  }
+
+  _extractLocationValue(device, field) {
+    const rawValue = field.target === "floor" ? device.floor : device.area;
+    const normalized = String(rawValue || "").trim();
+    return normalized || this._locationOrderFallback(field.target);
+  }
+
+  _locationValueLabel(field, value) {
+    if (value === this._locationOrderFallback("floor")) {
+      return this._tEditor("noFloor");
+    }
+    if (value === this._locationOrderFallback("area")) {
+      return this._tEditor("noArea");
+    }
+    return value;
+  }
+
+  _locationOrderFallback(target) {
+    return window.MatterSaverCardUtils?.LOCATION_ORDER_FALLBACKS?.[target]
+      || `::matter_saver_internal_no_${target}::`;
   }
 }
 

@@ -15,6 +15,10 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
+try:
+    from homeassistant.helpers import floor_registry as fr
+except ImportError:  # pragma: no cover - compatibility for older HA versions
+    fr = None
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -436,6 +440,11 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._recent_parents_dirty = True
 
     @staticmethod
+    def _is_child_device_role(role: str) -> bool:
+        """Return True when the role belongs to a child/end-device."""
+        return role not in ("router", "leader", "reed")
+
+    @staticmethod
     def _extend_route_to_leader(
         path: list[dict[str, Any]],
         start_rloc_base: int | None,
@@ -678,6 +687,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "node_id": node_id,
                 "device_name": self._get_matter_attr(attributes, 40, 3, ""),
                 "area": "",
+                "floor": "",
                 "available": available,
                 "product_name": self._get_matter_attr(attributes, 40, 3, ""),
                 "vendor_name": self._get_matter_attr(attributes, 40, 1, ""),
@@ -718,11 +728,22 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         dev_reg = dr.async_get(self.hass)
         ent_reg = er.async_get(self.hass)
         area_reg = ar.async_get(self.hass)
+        floor_reg = fr.async_get(self.hass) if fr is not None else None
 
-        # Build area_id -> area_name lookup
-        area_names: dict[str, str] = {}
+        floor_names: dict[str, str] = {}
+        if floor_reg is not None:
+            for floor in floor_reg.async_list_floors():
+                floor_id = getattr(floor, "floor_id", "")
+                if floor_id:
+                    floor_names[floor_id] = floor.name
+
+        # Build area_id -> area details lookup
+        area_details: dict[str, dict[str, str]] = {}
         for area in area_reg.async_list_areas():
-            area_names[area.id] = area.name
+            area_details[area.id] = {
+                "name": area.name,
+                "floor": floor_names.get(getattr(area, "floor_id", ""), ""),
+            }
 
         # Build device_id -> update_available lookup
         update_available: dict[str, bool] = {}
@@ -742,9 +763,11 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if len(parts) >= 2:
                     try:
                         node_id = int(parts[1], 16)
+                        area_info = area_details.get(device.area_id, {}) if device.area_id else {}
                         node_map[node_id] = {
                             "name": device.name_by_user or device.name or "",
-                            "area": area_names.get(device.area_id, "") if device.area_id else "",
+                            "area": area_info.get("name", ""),
+                            "floor": area_info.get("floor", ""),
                             "update_available": update_available.get(device.id, False),
                         }
                     except (ValueError, IndexError):
@@ -787,6 +810,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "node_id": node_id,
                 "device_name": device_info.get("name", ""),
                 "area": device_info.get("area", ""),
+                "floor": device_info.get("floor", ""),
                 "update_available": device_info.get("update_available", False),
                 "available": available,
                 "vendor_name": self._get_matter_attr(attributes, 40, 1, ""),
@@ -903,7 +927,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Store RLOC base for routers
             node_info["_rloc_base"] = None
-            if thread_role_val in (5, 6):
+            if thread_role_val in (4, 5, 6):  # 4=REED, 5=Router, 6=Leader
                 route_table = self._get_matter_attr(attributes, 53, 8, [])
                 if isinstance(route_table, list):
                     # Method 1: own entry has ExtAddr!=0, Allocated, !LinkEstablished
@@ -947,7 +971,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Store router neighbor info (RSSI to other routers)
             node_info["_router_neighbors"] = {}
-            if thread_role_val in (5, 6) and isinstance(neighbor_table, list):
+            if thread_role_val in (4, 5, 6) and isinstance(neighbor_table, list):
                 for nb in neighbor_table:
                     if isinstance(nb, dict) and not nb.get("13", False):
                         nb_rloc = nb.get("2", 0)
@@ -987,14 +1011,15 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             resolved_parent_rssi = parent_rssi
             resolved_parent_lqi = parent_lqi
             used_recent_parent = False
+            can_use_recent_parent = (
+                self._is_child_device_role(n["thread_role"])
+                and recent_parent is not None
+                and recent_parent["parent_node_id"] in nodes_by_id
+            )
 
             if parent_rloc is not None and parent_rloc in rloc_to_node:
                 resolved_parent = rloc_to_node[parent_rloc]
-            elif (
-                n["thread_role"] in ("sed", "end_device")
-                and recent_parent is not None
-                and recent_parent["parent_node_id"] in nodes_by_id
-            ):
+            elif can_use_recent_parent:
                 resolved_parent = nodes_by_id[recent_parent["parent_node_id"]]
                 resolved_parent_rssi = recent_parent.get("rssi")
                 resolved_parent_lqi = recent_parent.get("lqi")
@@ -1018,23 +1043,25 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "rssi": None, "lqi": None,
             })
 
-            if n["thread_role"] in ("sed", "end_device"):
+            if (
+                self._is_child_device_role(n["thread_role"])
+                and resolved_parent is not None
+            ):
                 # Hop 1: parent router
-                if resolved_parent is not None:
-                    pr = resolved_parent
-                    path.append({
-                        "node_id": pr["node_id"],
-                        "name": pr["device_name"],
-                        "role": pr["thread_role"],
-                        "rssi": resolved_parent_rssi,
-                        "lqi": resolved_parent_lqi,
-                    })
-                    self._extend_route_to_leader(
-                        path,
-                        pr.get("_rloc_base"),
-                        leader_rloc_base,
-                        rloc_to_node,
-                    )
+                pr = resolved_parent
+                path.append({
+                    "node_id": pr["node_id"],
+                    "name": pr["device_name"],
+                    "role": pr["thread_role"],
+                    "rssi": resolved_parent_rssi,
+                    "lqi": resolved_parent_lqi,
+                })
+                self._extend_route_to_leader(
+                    path,
+                    pr.get("_rloc_base"),
+                    leader_rloc_base,
+                    rloc_to_node,
+                )
 
             elif n["thread_role"] in ("router", "reed"):
                 self._extend_route_to_leader(
@@ -1059,7 +1086,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             n["signal_lqi"] = None if signal_hop is None else signal_hop.get("lqi")
 
             if (
-                n["thread_role"] in ("sed", "end_device")
+                self._is_child_device_role(n["thread_role"])
                 and resolved_parent is not None
                 and not used_recent_parent
             ):
