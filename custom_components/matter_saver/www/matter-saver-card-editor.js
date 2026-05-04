@@ -179,6 +179,14 @@ const MATTER_SAVER_EDITOR_META = {
         section: "appearance",
       },
       {
+        name: "trim_area_from_name",
+        labelKey: "editorTrimAreaFromNameLabel",
+        type: "boolean",
+        defaultValue: true,
+        helperKey: "editorTrimAreaFromNameHelper",
+        section: "appearance",
+      },
+      {
         name: "floor_order",
         labelKey: "editorFloorOrderLabel",
         type: "location-order",

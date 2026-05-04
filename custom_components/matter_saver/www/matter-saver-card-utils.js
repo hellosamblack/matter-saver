@@ -4,6 +4,28 @@
     floor: "::matter_saver_internal_no_floor::",
     area: "::matter_saver_internal_no_area::",
   };
+  const ROUTING_ROLES = new Set(["leader", "router", "reed"]);
+  const AREA_NAME_BOUNDARY_PATTERN = "[\\s\\-–—:()\\[\\],/]+";
+  const DEVICE_ICON_RULES = [
+    { icon: "mdi:home-lock", patterns: [/\b(lock|deadbolt|door lock)\b/i] },
+    { icon: "mdi:power-plug", patterns: [/\b(outlet|socket|plug|receptacle)\b/i] },
+    { icon: "mdi:lightbulb", patterns: [/\b(light|lamp|bulb|dimmer|lighting)\b/i] },
+    { icon: "mdi:motion-sensor", patterns: [/\b(motion|occupancy|presence)\b/i] },
+    { icon: "mdi:air-filter", patterns: [/\b(air quality|iaq|voc|pm2\.?5|co2)\b/i] },
+    { icon: "mdi:gesture-tap-button", patterns: [/\b(button|scene controller|remote)\b/i] },
+    { icon: "mdi:door-closed", patterns: [/\b(door|contact sensor|entry sensor)\b/i] },
+    { icon: "mdi:window-closed", patterns: [/\b(window|shade sensor)\b/i] },
+    { icon: "mdi:blinds", patterns: [/\b(blind|shade|curtain)\b/i] },
+    { icon: "mdi:thermostat", patterns: [/\b(thermostat|trv|radiator valve|heating)\b/i] },
+    { icon: "mdi:thermometer", patterns: [/\b(temperature|thermo)\b/i] },
+    { icon: "mdi:water-percent", patterns: [/\b(humidity)\b/i] },
+    { icon: "mdi:water-alert", patterns: [/\b(leak|water sensor|flood)\b/i] },
+    { icon: "mdi:smoke-detector", patterns: [/\b(smoke|carbon monoxide|co alarm|alarm)\b/i] },
+    { icon: "mdi:fan", patterns: [/\b(fan|ventilation|air purifier)\b/i] },
+    { icon: "mdi:toggle-switch", patterns: [/\b(switch|relay)\b/i] },
+    { icon: "mdi:router-wireless", patterns: [/\b(router|border router|gateway|hub)\b/i] },
+    { icon: "mdi:radar", patterns: [/\b(sensor|detector|monitor)\b/i] },
+  ];
 
   const STRINGS = {
     en: {
@@ -38,6 +60,8 @@
       editorFloorOrderHelper: "Drag floors or use the arrow buttons to set their top-to-bottom order for By Floor and dollhouse layouts.",
       editorAreaOrderLabel: "Area order",
       editorAreaOrderHelper: "Drag rooms within each floor or use the arrow buttons to set their left-to-right order for By Area and dollhouse layouts.",
+      editorTrimAreaFromNameLabel: "Hide room name in node labels",
+      editorTrimAreaFromNameHelper: "Shorten labels like “Bathroom Door” to “Door” when the area is Bathroom.",
       product: "Product",
       status: "Status",
       thread: "Thread",
@@ -200,6 +224,8 @@
       editorFloorOrderHelper: "Etagen ziehen oder die Pfeiltasten nutzen, um ihre Reihenfolge von oben nach unten für Nach-Etage- und Puppenhaus-Layouts festzulegen.",
       editorAreaOrderLabel: "Bereichs-Reihenfolge",
       editorAreaOrderHelper: "Räume innerhalb jeder Etage ziehen oder die Pfeiltasten nutzen, um ihre Reihenfolge von links nach rechts für Nach-Bereich- und Puppenhaus-Layouts festzulegen.",
+      editorTrimAreaFromNameLabel: "Raumnamen in Knotenlabels ausblenden",
+      editorTrimAreaFromNameHelper: "Kürzt Labels wie „Badezimmer Tür“ auf „Tür“, wenn der Bereich Badezimmer ist.",
       product: "Produkt",
       status: "Status",
       thread: "Thread",
@@ -534,6 +560,10 @@
     return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
   }
 
+  function escapeRegExp(value) {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
   function signalInfo(rssi) {
     if (!hasNumericValue(rssi)) {
       return { level: "unknown", color: "rgba(255,255,255,0.25)" };
@@ -551,6 +581,58 @@
     if (!hasRssi) return `LQI ${Number(lqi)}/3`;
     const base = `${Math.round(Number(rssi))} dBm`;
     return hasLqi ? `${base} • LQI ${Number(lqi)}/3` : base;
+  }
+
+  function trimAreaFromName(name, area) {
+    const normalizedName = String(name || "").trim();
+    const normalizedArea = String(area || "").trim();
+    if (!normalizedName || !normalizedArea) {
+      return normalizedName;
+    }
+
+    let matcher;
+    try {
+      matcher = new RegExp(`(^|${AREA_NAME_BOUNDARY_PATTERN})${escapeRegExp(normalizedArea)}(?=$|${AREA_NAME_BOUNDARY_PATTERN})`, "ig");
+    } catch (error) {
+      return normalizedName;
+    }
+
+    const trimmed = normalizedName
+      .replace(matcher, "$1")
+      .replace(/\s{2,}/g, " ")
+      .replace(/^[\s\-–—:()\[\],/]+|[\s\-–—:()\[\],/]+$/g, "")
+      .trim();
+
+    return trimmed || normalizedName;
+  }
+
+  function deviceTypeIcon(device) {
+    if (!device || typeof device !== "object" || Array.isArray(device)) {
+      return "mdi:devices";
+    }
+
+    if (device.node_id === "ha" || device.role === "ha") {
+      return "mdi:home-assistant";
+    }
+
+    const haystack = [
+      device.name,
+      device.product,
+      device.node_label,
+      device.vendor,
+    ].filter(Boolean).join(" ");
+
+    for (const rule of DEVICE_ICON_RULES) {
+      if (rule.patterns.some((pattern) => pattern.test(haystack))) {
+        return rule.icon;
+      }
+    }
+
+    if (ROUTING_ROLES.has(device.thread_role || device.role)) {
+      return "mdi:router-wireless";
+    }
+
+    return device.power === "battery" ? "mdi:battery" : "mdi:devices";
   }
 
   function hasCompactDevices(devices) {
@@ -593,6 +675,8 @@
     roleLabel,
     signalInfo,
     formatSignal,
+    trimAreaFromName,
+    deviceTypeIcon,
     formatDate,
     formatRelativeTime,
     formatCountLabel,
