@@ -1,3 +1,5 @@
+const TABLE_COLUMN_COUNT = 17;
+
 class MatterSaverCard extends HTMLElement {
   constructor() {
     super();
@@ -44,7 +46,7 @@ class MatterSaverCard extends HTMLElement {
       return;
     }
     this._lastDataJson = JSON.stringify(state.attributes);
-    const CC = 17;
+    const CC = TABLE_COLUMN_COUNT;
 
     this.innerHTML = `
       <ha-card>
@@ -427,7 +429,7 @@ class MatterSaverCard extends HTMLElement {
           [this._t("signal"), this._formatSignal(device.signal_rssi, device.signal_lqi)],
           [this._t("neighbors"), device.neighbors || 0],
           [this._t("children"), device.children || 0],
-          [this._t("routeTitle", { name: "" }).replace(/[:\s]+$/, ""), this._routePathText(device)],
+          [this._t("routePath"), this._routePathText(device)],
           [this._t("lastSeen"), this._formatTimestamp(device.last_seen, true)],
           [this._t("lastInterview"), this._formatTimestamp(device.last_interview)],
           [this._t("commissioned"), this._formatTimestamp(device.date_commissioned)],
@@ -472,6 +474,7 @@ class MatterSaverCard extends HTMLElement {
     tabsEl.innerHTML = tabs.map((tab) =>
       `<button class="ms-tab" data-tab="${tab.id}">${this._escHtml(tab.label)}</button>`
     ).join("");
+    // Tab markup uses controlled templates; dynamic values are escaped before interpolation.
     contentEl.innerHTML = tabs.map((tab) =>
       `<div class="ms-tab-panel" data-tab="${tab.id}">${tab.html}</div>`
     ).join("");
@@ -639,7 +642,7 @@ class MatterSaverCard extends HTMLElement {
     let devices = this._getDevices(state);
     const online = state.attributes.online || 0;
     const offline = state.attributes.offline || 0;
-    const CC = 17;
+    const CC = TABLE_COLUMN_COUNT;
 
     const statsEl = this.querySelector("#ms-stats");
     if (statsEl) {

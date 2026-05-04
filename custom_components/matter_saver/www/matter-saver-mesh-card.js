@@ -1,3 +1,5 @@
+const MISSING_RSSI_SENTINEL = -999;
+
 class MatterSaverMeshCard extends HTMLElement {
   constructor() {
     super();
@@ -220,7 +222,7 @@ class MatterSaverMeshCard extends HTMLElement {
             rssi: nextHop?.rssi ?? null,
             lqi: nextHop?.lqi ?? null,
           };
-          if (!existing || (nextLink.rssi ?? -999) > (existing.rssi ?? -999)) {
+          if (!existing || (nextLink.rssi ?? MISSING_RSSI_SENTINEL) > (existing.rssi ?? MISSING_RSSI_SENTINEL)) {
             linkMap.set(key, nextLink);
           }
         }

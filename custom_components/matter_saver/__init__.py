@@ -80,6 +80,16 @@ def _action_label_en(action: str | None) -> str:
     return ACTION_LABELS_EN.get(action, action.replace("_", " ").title())
 
 
+def _preferred_node_name(node: dict[str, Any]) -> str:
+    """Return the best available display name for a parsed node."""
+    return (
+        node.get("device_name")
+        or node.get("node_label")
+        or node.get("product_name")
+        or f"Node {node['node_id']}"
+    )
+
+
 class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to fetch data from Matter Server WebSocket API."""
 
@@ -458,7 +468,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if leader:
                     path.append({
                         "node_id": leader["node_id"],
-                        "name": leader["device_name"],
+                        "name": _preferred_node_name(leader),
                         "role": leader["thread_role"],
                         "rssi": hop.get("rssi"),
                         "lqi": hop.get("lqi"),
@@ -481,7 +491,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hop_info = current_neighbors[best_rloc]
             path.append({
                 "node_id": next_router["node_id"],
-                "name": next_router["device_name"],
+                "name": _preferred_node_name(next_router),
                 "role": next_router["thread_role"],
                 "rssi": hop_info.get("rssi"),
                 "lqi": hop_info.get("lqi"),
@@ -991,12 +1001,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 used_recent_parent = True
 
             if resolved_parent is not None:
-                resolved_parent_name = (
-                    resolved_parent.get("device_name")
-                    or resolved_parent.get("node_label")
-                    or resolved_parent.get("product_name")
-                    or f"Node {resolved_parent['node_id']}"
-                )
+                resolved_parent_name = _preferred_node_name(resolved_parent)
                 n["parent_node_id"] = resolved_parent["node_id"]
                 n["parent_name"] = resolved_parent_name
             else:
@@ -1045,6 +1050,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             signal_hop = next(
                 (
                     hop for hop in path[1:]
+                    # Skip the device itself and inspect the upstream link.
                     if hop.get("rssi") is not None or hop.get("lqi") is not None
                 ),
                 None,
