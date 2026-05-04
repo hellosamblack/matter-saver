@@ -1,10 +1,6 @@
 // Lowest comparison value so links with real RSSI win during deduplication.
 const DEDUPE_RSSI_SENTINEL = -999;
 const MESH_VIEW_MODES = new Set(["logical", "by_floor", "by_area", "by_floor_area"]);
-const LOCATION_ORDER_FALLBACKS = {
-  floor: "__matter_saver_no_floor__",
-  area: "__matter_saver_no_area__",
-};
 const FALLBACK_HORIZONTAL_SPREAD = 0.5;
 const FALLBACK_VERTICAL_JITTER = 40;
 const NODE_ROLE_ORDER = {
@@ -566,17 +562,22 @@ class MatterSaverMeshCard extends HTMLElement {
   _locationGroupKey(target, node) {
     const rawValue = target === "floor" ? node.floor : node.area;
     const normalized = String(rawValue || "").trim();
-    return normalized || LOCATION_ORDER_FALLBACKS[target];
+    return normalized || this._locationOrderFallback(target);
   }
 
   _locationGroupLabel(target, value) {
-    if (value === LOCATION_ORDER_FALLBACKS.floor) {
+    if (value === this._locationOrderFallback("floor")) {
       return this._t("noFloor");
     }
-    if (value === LOCATION_ORDER_FALLBACKS.area) {
+    if (value === this._locationOrderFallback("area")) {
       return this._t("noArea");
     }
     return value;
+  }
+
+  _locationOrderFallback(target) {
+    return window.MatterSaverCardUtils?.LOCATION_ORDER_FALLBACKS?.[target]
+      || `::matter_saver_internal_no_${target}::`;
   }
 
   _getDevices(state) {

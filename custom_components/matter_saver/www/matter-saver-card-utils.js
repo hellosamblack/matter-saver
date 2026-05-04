@@ -1,5 +1,9 @@
 (() => {
   const COMPACT_DEVICE_ERROR = "Shared device decoder unavailable.";
+  const LOCATION_ORDER_FALLBACKS = {
+    floor: "::matter_saver_internal_no_floor::",
+    area: "::matter_saver_internal_no_area::",
+  };
 
   const STRINGS = {
     en: {
@@ -579,6 +583,7 @@
 
   window.MatterSaverCardUtils = {
     COMPACT_DEVICE_ERROR,
+    LOCATION_ORDER_FALLBACKS,
     getDevices,
     hasCompactDevices,
     getLanguage,

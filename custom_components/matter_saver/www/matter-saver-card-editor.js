@@ -1,8 +1,4 @@
 const MATTER_SAVER_CARD_TYPE_PREFIX = "custom:";
-const LOCATION_ORDER_FALLBACKS = {
-  floor: "__matter_saver_no_floor__",
-  area: "__matter_saver_no_area__",
-};
 
 const MATTER_SAVER_EDITOR_META = {
   "matter-saver-card": {
@@ -841,8 +837,9 @@ class MatterSaverCardEditor extends HTMLElement {
       upButton.className = "ms-editor__order-btn";
       upButton.textContent = "↑";
       upButton.disabled = index === 0;
-      upButton.setAttribute("aria-label", this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) }));
-      upButton.title = this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) });
+      const upLabel = this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) });
+      upButton.setAttribute("aria-label", upLabel);
+      upButton.title = upLabel;
       upButton.addEventListener("click", () => {
         this._moveLocationValue(field, orderedValues, index, index - 1);
       });
@@ -852,8 +849,9 @@ class MatterSaverCardEditor extends HTMLElement {
       downButton.className = "ms-editor__order-btn";
       downButton.textContent = "↓";
       downButton.disabled = index === orderedValues.length - 1;
-      downButton.setAttribute("aria-label", this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) }));
-      downButton.title = this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) });
+      const downLabel = this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) });
+      downButton.setAttribute("aria-label", downLabel);
+      downButton.title = downLabel;
       downButton.addEventListener("click", () => {
         this._moveLocationValue(field, orderedValues, index, index + 1);
       });
@@ -946,17 +944,22 @@ class MatterSaverCardEditor extends HTMLElement {
   _extractLocationValue(device, field) {
     const rawValue = field.target === "floor" ? device.floor : device.area;
     const normalized = String(rawValue || "").trim();
-    return normalized || LOCATION_ORDER_FALLBACKS[field.target];
+    return normalized || this._locationOrderFallback(field.target);
   }
 
   _locationValueLabel(field, value) {
-    if (value === LOCATION_ORDER_FALLBACKS.floor) {
+    if (value === this._locationOrderFallback("floor")) {
       return this._tEditor("noFloor");
     }
-    if (value === LOCATION_ORDER_FALLBACKS.area) {
+    if (value === this._locationOrderFallback("area")) {
       return this._tEditor("noArea");
     }
     return value;
+  }
+
+  _locationOrderFallback(target) {
+    return window.MatterSaverCardUtils?.LOCATION_ORDER_FALLBACKS?.[target]
+      || `::matter_saver_internal_no_${target}::`;
   }
 }
 

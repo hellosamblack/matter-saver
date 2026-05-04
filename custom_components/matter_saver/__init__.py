@@ -922,7 +922,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Store RLOC base for routers
             node_info["_rloc_base"] = None
-            if thread_role_val in (4, 5, 6):
+            if thread_role_val in (4, 5, 6):  # 4=REED, 5=Router, 6=Leader
                 route_table = self._get_matter_attr(attributes, 53, 8, [])
                 if isinstance(route_table, list):
                     # Method 1: own entry has ExtAddr!=0, Allocated, !LinkEstablished
