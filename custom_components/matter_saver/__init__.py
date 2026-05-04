@@ -1078,7 +1078,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             existing_last_seen = self._last_seen.get(node_id, "")
             previous_available = self._previous_status.get(node_id)
             if available:
-                if previous_available is False or not existing_last_seen:
+                if (previous_available is not None and not previous_available) or not existing_last_seen:
                     self._last_seen[node_id] = datetime.now(timezone.utc).isoformat()
                 elif last_interview and last_interview > existing_last_seen:
                     self._last_seen[node_id] = last_interview

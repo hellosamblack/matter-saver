@@ -37,6 +37,7 @@ class MatterSaverMeshCard extends HTMLElement {
     this._dragStartX = 0;
     this._dragStartY = 0;
     this._dragMoved = false;
+    this._suppressNextClick = false;
     this._deviceDataError = "";
     this._viewMode = "logical";
     this._floorOrder = [];
@@ -207,15 +208,21 @@ class MatterSaverMeshCard extends HTMLElement {
     });
     wrap.addEventListener("mouseup", () => {
       this._isPanning = false;
+      this._suppressNextClick = this._dragMoved;
       this._dragging = null;
+      this._dragStartX = 0;
+      this._dragStartY = 0;
+      this._dragMoved = false;
       wrap.classList.remove("grabbing");
-      setTimeout(() => { this._dragMoved = false; }, 0);
     });
     wrap.addEventListener("mouseleave", () => {
       this._isPanning = false;
       this._dragging = null;
+      this._dragStartX = 0;
+      this._dragStartY = 0;
       wrap.classList.remove("grabbing");
       this._dragMoved = false;
+      this._suppressNextClick = false;
     });
     wrap.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -922,6 +929,10 @@ class MatterSaverMeshCard extends HTMLElement {
       });
 
       group.addEventListener("click", () => {
+        if (this._suppressNextClick) {
+          this._suppressNextClick = false;
+          return;
+        }
         if (!node || node.id === "ha" || this._dragMoved || node.kind !== "device") return;
         window.dispatchEvent(new CustomEvent("matter-saver-open-device-details", {
           detail: {
