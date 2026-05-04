@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,36 @@ def _command_exists(command: str) -> bool:
     from shutil import which
 
     return which(command) is not None
+
+
+def _github_repo() -> str:
+    """Return the GitHub owner/repo for the origin remote."""
+    result = _run_command(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True,
+    )
+    remote_url = result.stdout.strip()
+    match = re.search(
+        r"github\.com[:/](?P<repo>[^/\s]+/[^/\s]+?)(?:\.git)?$",
+        remote_url,
+    )
+    if not match:
+        raise SystemExit(
+            "Release aborted: could not determine the GitHub repository from the origin remote."
+        )
+    return match.group("repo")
+
+
+def _require_github_release_access(repo: str) -> None:
+    """Ensure GitHub CLI can access the release target repository."""
+    try:
+        _run_command(["gh", "auth", "status"])
+        _run_command(["gh", "repo", "view", repo, "--json", "nameWithOwner"])
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(
+            f"Release aborted: GitHub CLI cannot access {repo}. "
+            "Run `gh auth login` if needed and verify the repository is reachable."
+        ) from exc
 
 
 def _load_manifest() -> dict[str, object]:
@@ -125,7 +156,7 @@ def _prompt_release_notes(version: str) -> str:
     return notes
 
 
-def _create_release(version: str, notes: str, *, dry_run: bool) -> None:
+def _create_release(version: str, notes: str, repo: str, *, dry_run: bool) -> None:
     """Commit, tag, push, and create the GitHub release."""
     tag = f"v{version}"
     branch = _current_branch()
@@ -135,7 +166,7 @@ def _create_release(version: str, notes: str, *, dry_run: bool) -> None:
         print(f"[dry-run] Would commit {manifest_relpath} with message: Release {tag}")
         print(f"[dry-run] Would tag: {tag}")
         print(f"[dry-run] Would push branch: {branch}")
-        print(f"[dry-run] Would create GitHub release for {tag}")
+        print(f"[dry-run] Would create GitHub release for {tag} in {repo}")
         return
 
     _run_command(["git", "add", manifest_relpath])
@@ -155,6 +186,8 @@ def _create_release(version: str, notes: str, *, dry_run: bool) -> None:
                 "release",
                 "create",
                 tag,
+                "--repo",
+                repo,
                 "--title",
                 tag,
                 "--notes-file",
@@ -198,6 +231,10 @@ def main() -> int:
     if not args.dry_run and not _command_exists("gh"):
         raise SystemExit("Release aborted: GitHub CLI (gh) is required.")
 
+    repo = _github_repo()
+    if not args.dry_run:
+        _require_github_release_access(repo)
+
     if not args.allow_dirty:
         _require_clean_worktree()
 
@@ -221,7 +258,17 @@ def main() -> int:
     _write_manifest(manifest)
 
     try:
-        _create_release(next_version, notes, dry_run=args.dry_run)
+        _create_release(next_version, notes, repo, dry_run=args.dry_run)
+    except subprocess.CalledProcessError as exc:
+        if args.dry_run:
+            manifest["version"] = current_version
+            _write_manifest(manifest)
+        tag = f"v{next_version}"
+        raise SystemExit(
+            f"Release aborted while finalizing {tag}. "
+            "The manifest change, git commit, or tag may already exist. "
+            f"If needed, finish the GitHub release manually for {tag} in {repo}."
+        ) from exc
     except Exception:
         if args.dry_run:
             manifest["version"] = current_version
