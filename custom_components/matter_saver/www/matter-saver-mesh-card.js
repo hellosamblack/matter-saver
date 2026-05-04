@@ -1,3 +1,4 @@
+// Lowest comparison value so links with real RSSI win during deduplication.
 const DEDUPE_RSSI_SENTINEL = -999;
 
 class MatterSaverMeshCard extends HTMLElement {

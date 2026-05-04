@@ -1,4 +1,15 @@
+// Keep this in sync with the rendered device-table header/body column count.
 const TABLE_COLUMN_COUNT = 17;
+const NUMERIC_SORT_FIELDS = new Set([
+  "node_id",
+  "battery",
+  "neighbors",
+  "children",
+  "errors",
+  "offline_24h_minutes",
+  "offline_7d_minutes",
+  "signal_rssi",
+]);
 
 class MatterSaverCard extends HTMLElement {
   constructor() {
@@ -46,8 +57,6 @@ class MatterSaverCard extends HTMLElement {
       return;
     }
     this._lastDataJson = JSON.stringify(state.attributes);
-    const CC = TABLE_COLUMN_COUNT;
-
     this.innerHTML = `
       <ha-card>
         <style>
@@ -641,7 +650,6 @@ class MatterSaverCard extends HTMLElement {
     let devices = this._getDevices(state);
     const online = state.attributes.online || 0;
     const offline = state.attributes.offline || 0;
-    const CC = TABLE_COLUMN_COUNT;
 
     const statsEl = this.querySelector("#ms-stats");
     if (statsEl) {
@@ -693,10 +701,10 @@ class MatterSaverCard extends HTMLElement {
     const tbodyEl = this.querySelector("#ms-tbody");
     if (tbodyEl) {
       if (devices.length === 0) {
-        tbodyEl.innerHTML = `<tr class="ms-no-results"><td colspan="${CC}">${this._escHtml(this._deviceDataError || this._t("noDevicesFound"))}</td></tr>`;
+        tbodyEl.innerHTML = `<tr class="ms-no-results"><td colspan="${TABLE_COLUMN_COUNT}">${this._escHtml(this._deviceDataError || this._t("noDevicesFound"))}</td></tr>`;
       } else {
         const sorted = this._sortDevices(devices);
-        tbodyEl.innerHTML = this._groupDevices(sorted, CC);
+        tbodyEl.innerHTML = this._groupDevices(sorted, TABLE_COLUMN_COUNT);
       }
     }
   }
@@ -726,7 +734,7 @@ class MatterSaverCard extends HTMLElement {
       let va = a[field]; let vb = b[field];
       if (va == null) va = field === "battery" ? 999 : "";
       if (vb == null) vb = field === "battery" ? 999 : "";
-      if (field === "node_id" || field === "battery" || field === "neighbors" || field === "children" || field === "errors" || field === "offline_24h_minutes" || field === "offline_7d_minutes" || field === "signal_rssi") {
+      if (NUMERIC_SORT_FIELDS.has(field)) {
         va = Number(va) || 0; vb = Number(vb) || 0;
       } else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
       if (va < vb) return asc ? -1 : 1;
@@ -735,13 +743,13 @@ class MatterSaverCard extends HTMLElement {
     });
   }
 
-  _groupDevices(devices, CC) {
+  _groupDevices(devices, columnCount) {
     const field = this._sortField;
     let html = ""; let lastGroup = null;
     for (const d of devices) {
       let groupVal = this._groupValue(d, field);
       if (groupVal !== lastGroup) {
-        html += `<tr class="ms-group-header"><td colspan="${CC}">${this._escHtml(groupVal)}</td></tr>`;
+        html += `<tr class="ms-group-header"><td colspan="${columnCount}">${this._escHtml(groupVal)}</td></tr>`;
         lastGroup = groupVal;
       }
       html += this._deviceRow(d);
