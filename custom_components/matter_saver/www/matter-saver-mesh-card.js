@@ -92,8 +92,10 @@ class MatterSaverMeshCard extends HTMLElement {
           <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#8bc34a"></span> ${this._threadRoleLabel("reed")}</span>
           <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#78909c"></span> ${this._threadRoleLabel("end_device")}</span>
           <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#03a9f4"></span> ${this._t("homeAssistant")}</span>
-          <span class="mm-legend-item"><span style="width:20px;height:2px;background:#4caf50;display:inline-block"></span> ${this._t("parentLegend")}</span>
-          <span class="mm-legend-item"><span style="width:20px;height:1px;background:rgba(255,255,255,0.15);display:inline-block"></span> ${this._t("neighborLegend")}</span>
+          <span class="mm-legend-item"><span style="width:20px;height:2px;background:#4caf50;display:inline-block"></span> ${this._t("strongSignal")}</span>
+          <span class="mm-legend-item"><span style="width:20px;height:2px;background:#ff9800;display:inline-block"></span> ${this._t("fairSignal")}</span>
+          <span class="mm-legend-item"><span style="width:20px;height:2px;background:#f44336;display:inline-block"></span> ${this._t("weakSignal")}</span>
+          <span class="mm-legend-item"><span style="width:20px;height:2px;background:rgba(255,255,255,0.25);display:inline-block"></span> ${this._t("unknownSignal")}</span>
         </div>` : ""}
         <div class="mm-svg-wrap" id="mm-wrap" style="height:${this._graphHeight ? `${this._graphHeight}px` : "calc(100vh - 180px)"};min-height:${this._graphHeight ? `${this._graphHeight}px` : "400px"}">
           <svg class="mm-svg" id="mm-svg"></svg>
@@ -169,6 +171,7 @@ class MatterSaverMeshCard extends HTMLElement {
 
     this._nodes = [];
     this._links = [];
+    const linkMap = new Map();
 
     // HA node
     this._nodes.push({
@@ -199,17 +202,43 @@ class MatterSaverMeshCard extends HTMLElement {
       }
     }
 
-    // Links: parent -> child
+    // Links: route-path edges with signal metadata
     for (const d of devices) {
-      if (d.parent_node_id != null) {
-        this._links.push({ source: d.parent_node_id, target: d.node_id, type: "parent" });
+      if (Array.isArray(d.route_path) && d.route_path.length > 1) {
+        for (let i = 0; i < d.route_path.length - 1; i++) {
+          const currentHop = d.route_path[i];
+          const nextHop = d.route_path[i + 1];
+          const source = currentHop?.node_id ?? "ha";
+          const target = nextHop?.node_id ?? "ha";
+          if (source === target) continue;
+          const key = `${source}->${target}`;
+          const existing = linkMap.get(key);
+          const nextLink = {
+            source,
+            target,
+            type: "parent",
+            rssi: nextHop?.rssi ?? null,
+            lqi: nextHop?.lqi ?? null,
+          };
+          if (!existing || (nextLink.rssi ?? -999) > (existing.rssi ?? -999)) {
+            linkMap.set(key, nextLink);
+          }
+        }
+      } else if (d.parent_node_id != null) {
+        linkMap.set(`${d.parent_node_id}->${d.node_id}`, {
+          source: d.parent_node_id,
+          target: d.node_id,
+          type: "parent",
+          rssi: d.signal_rssi ?? null,
+          lqi: d.signal_lqi ?? null,
+        });
       }
     }
 
     // Links: routers/leader -> HA
     for (const d of devices) {
       if (d.thread_role === "leader") {
-        this._links.push({ source: "ha", target: d.node_id, type: "parent" });
+        linkMap.set(`${d.node_id}->ha`, { source: d.node_id, target: "ha", type: "parent", rssi: null, lqi: null });
       }
     }
 
@@ -217,10 +246,11 @@ class MatterSaverMeshCard extends HTMLElement {
     if (!devices.some(d => d.thread_role === "leader")) {
       for (const d of devices) {
         if (d.thread_role === "router") {
-          this._links.push({ source: "ha", target: d.node_id, type: "parent" });
+          linkMap.set(`${d.node_id}->ha`, { source: d.node_id, target: "ha", type: "parent", rssi: null, lqi: null });
         }
       }
     }
+    this._links = Array.from(linkMap.values());
   }
 
   _layoutNodes() {
@@ -304,7 +334,7 @@ class MatterSaverMeshCard extends HTMLElement {
       const t = nodeMap[link.target];
       if (!s || !t) continue;
       const isParent = link.type === "parent";
-      const color = isParent ? "rgba(76,175,80,0.4)" : "rgba(255,255,255,0.08)";
+      const color = isParent ? this._linkColor(link.rssi) : "rgba(255,255,255,0.08)";
       const width = isParent ? 2 : 1;
       html += `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" stroke="${color}" stroke-width="${width}" />`;
     }
@@ -383,6 +413,10 @@ class MatterSaverMeshCard extends HTMLElement {
   _hideTooltip() {
     const tt = this.querySelector("#mm-tooltip");
     if (tt) tt.classList.remove("show");
+  }
+
+  _linkColor(rssi) {
+    return window.MatterSaverCardUtils?.signalInfo(rssi)?.color || "rgba(255,255,255,0.25)";
   }
 
   _roleLabel(role) {

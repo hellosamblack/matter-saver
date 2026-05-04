@@ -28,9 +28,17 @@
       neighbors: "Neighbors",
       children: "Children",
       parent: "Parent",
+      signal: "Signal",
       power: "Power",
       battery: "Battery",
       firmware: "Firmware",
+      vendor: "Vendor",
+      label: "Label",
+      serialNumber: "Serial Number",
+      commissioned: "Commissioned",
+      lastInterview: "Last Interview",
+      txRetries: "TX Retries",
+      update: "Update",
       errors: "Errors",
       lastSeen: "Last Seen",
       nodeId: "Node ID",
@@ -73,9 +81,21 @@
       unassignedEndDevices: "Unassigned end devices",
       parentLegend: "Parent",
       neighborLegend: "Neighbor",
+      strongSignal: "Strong signal",
+      fairSignal: "Fair signal",
+      weakSignal: "Weak signal",
+      unknownSignal: "Unknown signal",
       reset: "Reset",
       batteryLabel: "Battery: {value}%",
+      updateAvailable: "Available",
+      upToDate: "Current",
       offlineBadge: "OFFLINE",
+      overviewTab: "Overview",
+      threadTab: "Thread",
+      diagnosticsTab: "Diagnostics",
+      historyTab: "History",
+      actionsTab: "Actions",
+      noHistory: "No activity for this device yet",
       autoRecoveryPingFailed: "Auto-Recovery: ping failed",
       autoRecoveryPingOk: "Auto-Recovery: ping ok, starting re-interview",
       autoRecoveryInterviewFailed: "Auto-Recovery: re-interview failed",
@@ -137,9 +157,17 @@
       neighbors: "Nachbarn",
       children: "Kinder",
       parent: "Parent",
+      signal: "Signal",
       power: "Strom",
       battery: "Batterie",
       firmware: "Firmware",
+      vendor: "Hersteller",
+      label: "Label",
+      serialNumber: "Seriennummer",
+      commissioned: "Kommissioniert",
+      lastInterview: "Letztes Interview",
+      txRetries: "TX Retries",
+      update: "Update",
       errors: "Fehler",
       lastSeen: "Zuletzt gesehen",
       nodeId: "Node ID",
@@ -182,9 +210,21 @@
       unassignedEndDevices: "Nicht zugeordnete End Devices",
       parentLegend: "Parent",
       neighborLegend: "Nachbar",
+      strongSignal: "Starkes Signal",
+      fairSignal: "Mittleres Signal",
+      weakSignal: "Schwaches Signal",
+      unknownSignal: "Unbekanntes Signal",
       reset: "Reset",
       batteryLabel: "Batterie: {value}%",
+      updateAvailable: "Verfügbar",
+      upToDate: "Aktuell",
       offlineBadge: "OFFLINE",
+      overviewTab: "Übersicht",
+      threadTab: "Thread",
+      diagnosticsTab: "Diagnose",
+      historyTab: "Verlauf",
+      actionsTab: "Aktionen",
+      noHistory: "Noch keine Aktivitäten für dieses Gerät",
       autoRecoveryPingFailed: "Auto-Recovery: Ping fehlgeschlagen",
       autoRecoveryPingOk: "Auto-Recovery: Ping OK, starte Re-Interview",
       autoRecoveryInterviewFailed: "Auto-Recovery: Re-Interview fehlgeschlagen",
@@ -420,6 +460,25 @@
     return `${count} ${t(hass, count === 1 ? "entry_one" : "entry_other")}`;
   }
 
+  function signalInfo(rssi) {
+    const value = Number(rssi);
+    if (!Number.isFinite(value)) {
+      return { level: "unknown", color: "rgba(255,255,255,0.25)" };
+    }
+    if (value > -70) return { level: "strong", color: "#4caf50" };
+    if (value > -85) return { level: "fair", color: "#ff9800" };
+    return { level: "weak", color: "#f44336" };
+  }
+
+  function formatSignal(hass, rssi, lqi) {
+    const hasRssi = Number.isFinite(Number(rssi));
+    const hasLqi = Number.isFinite(Number(lqi));
+    if (!hasRssi && !hasLqi) return t(hass, "unknownSignal");
+    if (!hasRssi) return `LQI ${Number(lqi)}/3`;
+    const base = `${Math.round(Number(rssi))} dBm`;
+    return hasLqi ? `${base} • LQI ${Number(lqi)}/3` : base;
+  }
+
   function hasCompactDevices(devices) {
     return Array.isArray(devices) && devices.some((device) => (
       device
@@ -457,6 +516,8 @@
     t,
     actionLabel,
     roleLabel,
+    signalInfo,
+    formatSignal,
     formatDate,
     formatRelativeTime,
     formatCountLabel,

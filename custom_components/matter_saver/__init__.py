@@ -95,6 +95,8 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_seen: dict[int, str] = {}  # node_id -> ISO timestamp
         self._previous_status: dict[int, bool] = {}  # node_id -> available
         self._previous_problem: dict[int, tuple[str, ...]] = {}
+        self._recent_parents: dict[int, dict[str, Any]] = {}
+        self._recent_parents_dirty = False
         self.activity_log: list[dict[str, Any]] = []
         self.max_log_entries = 200
         self._store = Store(hass, 1, f"{DOMAIN}_data")
@@ -116,7 +118,13 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.offline_history = {
                 int(k): v for k, v in data.get("offline_history", {}).items()
             }
+            self._recent_parents = {
+                int(k): normalized
+                for k, value in data.get("recent_parents", {}).items()
+                if (normalized := self._normalize_recent_parent(value)) is not None
+            }
             self.auto_recovery_enabled = data.get("auto_recovery", True)
+        self._recent_parents_dirty = False
         self._store_loaded = True
 
     async def _async_save_log(self) -> None:
@@ -125,6 +133,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "entries": self.activity_log,
             "last_seen": self._last_seen,
             "offline_history": {str(k): v for k, v in self.offline_history.items()},
+            "recent_parents": {str(k): v for k, v in self._recent_parents.items()},
             "auto_recovery": self.auto_recovery_enabled,
         })
 
@@ -372,6 +381,113 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             overlap_seconds_total
         )
 
+    @staticmethod
+    def _coerce_int(value: Any) -> int | None:
+        """Return an integer when possible."""
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _normalize_recent_parent(cls, value: Any) -> dict[str, Any] | None:
+        """Normalize persisted recent-parent metadata."""
+        if not isinstance(value, dict):
+            return None
+        parent_node_id = cls._coerce_int(value.get("parent_node_id"))
+        if parent_node_id is None:
+            return None
+        return {
+            "parent_node_id": parent_node_id,
+            "parent_name": str(value.get("parent_name") or ""),
+            "rssi": cls._coerce_int(value.get("rssi")),
+            "lqi": cls._coerce_int(value.get("lqi")),
+        }
+
+    def _remember_recent_parent(
+        self,
+        node_id: int,
+        parent_node_id: int,
+        parent_name: str,
+        rssi: Any,
+        lqi: Any,
+    ) -> None:
+        """Persist the most recently known parent for a node."""
+        payload = {
+            "parent_node_id": parent_node_id,
+            "parent_name": parent_name,
+            "rssi": self._coerce_int(rssi),
+            "lqi": self._coerce_int(lqi),
+        }
+        if self._recent_parents.get(node_id) != payload:
+            self._recent_parents[node_id] = payload
+            self._recent_parents_dirty = True
+
+    @staticmethod
+    def _extend_route_to_leader(
+        path: list[dict[str, Any]],
+        start_rloc_base: int | None,
+        leader_rloc_base: int | None,
+        rloc_to_node: dict[int, dict[str, Any]],
+    ) -> None:
+        """Append router hops from the starting router toward the leader."""
+        if (
+            start_rloc_base is None
+            or leader_rloc_base is None
+            or start_rloc_base == leader_rloc_base
+        ):
+            return
+
+        current_rloc = start_rloc_base
+        visited = {start_rloc_base}
+        for _ in range(5):
+            if current_rloc == leader_rloc_base:
+                break
+            current = rloc_to_node.get(current_rloc)
+            if not current:
+                break
+            current_neighbors = current.get("_router_neighbors", {})
+            if not current_neighbors:
+                break
+
+            if leader_rloc_base in current_neighbors:
+                hop = current_neighbors[leader_rloc_base]
+                leader = rloc_to_node.get(leader_rloc_base)
+                if leader:
+                    path.append({
+                        "node_id": leader["node_id"],
+                        "name": leader["device_name"],
+                        "role": leader["thread_role"],
+                        "rssi": hop.get("rssi"),
+                        "lqi": hop.get("lqi"),
+                    })
+                break
+
+            best_rloc = None
+            best_lqi = -1
+            for neighbor_rloc, neighbor_info in current_neighbors.items():
+                neighbor_lqi = neighbor_info.get("lqi") or 0
+                if neighbor_rloc not in visited and neighbor_lqi > best_lqi:
+                    best_lqi = neighbor_lqi
+                    best_rloc = neighbor_rloc
+
+            if best_rloc is None or best_rloc not in rloc_to_node:
+                break
+
+            visited.add(best_rloc)
+            next_router = rloc_to_node[best_rloc]
+            hop_info = current_neighbors[best_rloc]
+            path.append({
+                "node_id": next_router["node_id"],
+                "name": next_router["device_name"],
+                "role": next_router["thread_role"],
+                "rssi": hop_info.get("rssi"),
+                "lqi": hop_info.get("lqi"),
+            })
+            current_rloc = best_rloc
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Matter Server."""
         try:
@@ -491,7 +607,8 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             node["offline_30d_count"] = month_count
             node["offline_30d_minutes"] = month_minutes
 
-        if history_changed:
+        if history_changed or self._recent_parents_dirty:
+            self._recent_parents_dirty = False
             self.hass.async_create_task(self._async_save_log())
         data["activity_log"] = self.activity_log
         return data
@@ -554,15 +671,20 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "available": available,
                 "product_name": self._get_matter_attr(attributes, 40, 3, ""),
                 "vendor_name": self._get_matter_attr(attributes, 40, 1, ""),
+                "node_label": self._get_matter_attr(attributes, 40, 5, ""),
+                "serial_number": self._get_matter_attr(attributes, 40, 15, ""),
                 "software_version_string": self._get_matter_attr(attributes, 40, 10, ""),
+                "date_commissioned": node.get("date_commissioned", ""),
+                "last_interview": node.get("last_interview", ""),
                 "update_available": False,
                 "thread_role": "unknown",
                 "neighbors": 0, "children": 0,
-                "errors": 0,
+                "errors": 0, "tx_retries": 0,
                 "error_comment": "",
                 "error_comment_codes": [],
                 "battery_percent": None, "power_source": "unknown",
                 "parent_node_id": None, "parent_name": "",
+                "signal_rssi": None, "signal_lqi": None,
                 "route_path": [], "last_seen": self._last_seen.get(node_id, ""),
                 "offline_24h_count": 0, "offline_24h_minutes": 0,
                 "offline_7d_count": 0, "offline_7d_minutes": 0,
@@ -834,6 +956,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for n in nodes:
             if n["_rloc_base"] is not None:
                 rloc_to_node[n["_rloc_base"]] = n
+        nodes_by_id = {n["node_id"]: n for n in nodes if n.get("node_id") is not None}
 
         # Find the leader node (border router path ends here)
         leader_rloc_base = None
@@ -849,11 +972,33 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             parent_lqi = n.pop("_parent_lqi", None)
             rloc_base = n.pop("_rloc_base", None)
             router_neighbors = n.pop("_router_neighbors", {})
+            recent_parent = self._recent_parents.get(n["node_id"])
+            resolved_parent = None
+            resolved_parent_rssi = parent_rssi
+            resolved_parent_lqi = parent_lqi
+            used_recent_parent = False
 
             if parent_rloc is not None and parent_rloc in rloc_to_node:
-                parent = rloc_to_node[parent_rloc]
-                n["parent_node_id"] = parent["node_id"]
-                n["parent_name"] = parent["device_name"]
+                resolved_parent = rloc_to_node[parent_rloc]
+            elif (
+                n["thread_role"] in ("sed", "end_device")
+                and recent_parent is not None
+                and recent_parent["parent_node_id"] in nodes_by_id
+            ):
+                resolved_parent = nodes_by_id[recent_parent["parent_node_id"]]
+                resolved_parent_rssi = recent_parent.get("rssi")
+                resolved_parent_lqi = recent_parent.get("lqi")
+                used_recent_parent = True
+
+            if resolved_parent is not None:
+                resolved_parent_name = (
+                    resolved_parent.get("device_name")
+                    or resolved_parent.get("node_label")
+                    or resolved_parent.get("product_name")
+                    or f"Node {resolved_parent['node_id']}"
+                )
+                n["parent_node_id"] = resolved_parent["node_id"]
+                n["parent_name"] = resolved_parent_name
             else:
                 n["parent_node_id"] = None
                 n["parent_name"] = ""
@@ -870,107 +1015,55 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             if n["thread_role"] in ("sed", "end_device"):
                 # Hop 1: parent router
-                if parent_rloc is not None and parent_rloc in rloc_to_node:
-                    pr = rloc_to_node[parent_rloc]
+                if resolved_parent is not None:
+                    pr = resolved_parent
                     path.append({
                         "node_id": pr["node_id"],
                         "name": pr["device_name"],
                         "role": pr["thread_role"],
-                        "rssi": parent_rssi, "lqi": parent_lqi,
+                        "rssi": resolved_parent_rssi,
+                        "lqi": resolved_parent_lqi,
                     })
-                    # Trace from parent router toward leader (max 5 hops)
-                    current_rloc = parent_rloc
-                    visited = {parent_rloc}
-                    for _ in range(5):
-                        if current_rloc == leader_rloc_base:
-                            break
-                        cur = rloc_to_node.get(current_rloc)
-                        if not cur:
-                            break
-                        cur_neighbors = cur.get("_router_neighbors", {})
-                        if not cur_neighbors:
-                            break
-                        # Find neighbor closest to leader (prefer leader directly)
-                        if leader_rloc_base in cur_neighbors:
-                            hop = cur_neighbors[leader_rloc_base]
-                            lr = rloc_to_node[leader_rloc_base]
-                            path.append({
-                                "node_id": lr["node_id"],
-                                "name": lr["device_name"],
-                                "role": lr["thread_role"],
-                                "rssi": hop.get("rssi"),
-                                "lqi": hop.get("lqi"),
-                            })
-                            break
-                        # Otherwise pick best LQI neighbor not yet visited
-                        best_rloc = None
-                        best_lqi = -1
-                        for nb_rloc, nb_info in cur_neighbors.items():
-                            if nb_rloc not in visited and (nb_info.get("lqi") or 0) > best_lqi:
-                                best_lqi = nb_info.get("lqi") or 0
-                                best_rloc = nb_rloc
-                        if best_rloc and best_rloc in rloc_to_node:
-                            visited.add(best_rloc)
-                            nr = rloc_to_node[best_rloc]
-                            hop_info = cur_neighbors[best_rloc]
-                            path.append({
-                                "node_id": nr["node_id"],
-                                "name": nr["device_name"],
-                                "role": nr["thread_role"],
-                                "rssi": hop_info.get("rssi"),
-                                "lqi": hop_info.get("lqi"),
-                            })
-                            current_rloc = best_rloc
-                        else:
-                            break
+                    self._extend_route_to_leader(
+                        path,
+                        pr.get("_rloc_base"),
+                        leader_rloc_base,
+                        rloc_to_node,
+                    )
 
             elif n["thread_role"] in ("router", "reed"):
-                # Trace router path toward leader (max 5 hops)
-                if rloc_base and rloc_base != leader_rloc_base:
-                    current_rloc = rloc_base
-                    current_neighbors = router_neighbors
-                    visited = {rloc_base}
-                    for _ in range(5):
-                        if current_rloc == leader_rloc_base:
-                            break
-                        # Direct link to leader?
-                        if leader_rloc_base in current_neighbors:
-                            hop = current_neighbors[leader_rloc_base]
-                            lr = rloc_to_node[leader_rloc_base]
-                            path.append({
-                                "node_id": lr["node_id"],
-                                "name": lr["device_name"],
-                                "role": lr["thread_role"],
-                                "rssi": hop.get("rssi"),
-                                "lqi": hop.get("lqi"),
-                            })
-                            break
-                        # Pick best LQI neighbor not yet visited
-                        best_rloc = None
-                        best_lqi = -1
-                        for nb_rloc, nb_info in current_neighbors.items():
-                            if nb_rloc not in visited and (nb_info.get("lqi") or 0) > best_lqi:
-                                best_lqi = nb_info.get("lqi") or 0
-                                best_rloc = nb_rloc
-                        if best_rloc and best_rloc in rloc_to_node:
-                            visited.add(best_rloc)
-                            nr = rloc_to_node[best_rloc]
-                            hop_info = current_neighbors[best_rloc]
-                            path.append({
-                                "node_id": nr["node_id"],
-                                "name": nr["device_name"],
-                                "role": nr["thread_role"],
-                                "rssi": hop_info.get("rssi"),
-                                "lqi": hop_info.get("lqi"),
-                            })
-                            current_rloc = best_rloc
-                            current_neighbors = nr.get("_router_neighbors", {})
-                        else:
-                            break
+                self._extend_route_to_leader(
+                    path,
+                    rloc_base,
+                    leader_rloc_base,
+                    rloc_to_node,
+                )
 
             # Final hop: HA
             path.append({"node_id": None, "name": "Home Assistant", "role": "ha", "rssi": None, "lqi": None})
             n["route_path"] = path
+            signal_hop = next(
+                (
+                    hop for hop in path[1:]
+                    if hop.get("rssi") is not None or hop.get("lqi") is not None
+                ),
+                None,
+            )
+            n["signal_rssi"] = None if signal_hop is None else signal_hop.get("rssi")
+            n["signal_lqi"] = None if signal_hop is None else signal_hop.get("lqi")
+
+            if (
+                n["thread_role"] in ("sed", "end_device")
+                and resolved_parent is not None
+                and not used_recent_parent
+            ):
+                self._remember_recent_parent(
+                    n["node_id"],
+                    resolved_parent["node_id"],
+                    resolved_parent_name,
+                    resolved_parent_rssi,
+                    resolved_parent_lqi,
+                )
 
         # Sort: offline first, then by node_id
         nodes.sort(key=lambda n: (n["available"], n["node_id"] or 0))

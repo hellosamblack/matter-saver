@@ -16,7 +16,7 @@ Home Assistant already exposes Matter devices, but Matter Saver brings the troub
 
 ## Highlights
 
-- One main card for day-to-day device status, diagnostics, and repair actions
+- One main card for day-to-day device status, signal strength, tabbed diagnostics, and repair actions
 - Dedicated log, topology, and mesh cards for deeper visibility
 - Client-side English/German localization for card text, diagnostics, and activity log messages
 - Offline history and activity tracking for recurring problems
@@ -38,7 +38,7 @@ If you want the shortest path from install to a useful dashboard:
 3. Open a dashboard and add the `matter-saver-card` from the Lovelace card picker.
 4. Optionally add `matter-saver-log-card`, `matter-saver-topology-card`, or `matter-saver-mesh-card` for deeper visibility.
 
-The main card is the best place to start because it combines device status, diagnostics, route access, and repair actions.
+The main card is the best place to start because it combines device status, signal quality, route access, tabbed device details, and repair actions.
 
 ## Installation
 
@@ -84,10 +84,10 @@ title: Matter Devices
 
 | Card | Purpose |
 | --- | --- |
-| `matter-saver-card` | Main device table with sorting, grouping, search, route popup, action popup, and visual editor support |
+| `matter-saver-card` | Main device table with sorting, grouping, search, signal strength, route popup, tabbed device details, and visual editor support |
 | `matter-saver-log-card` | Activity log with filtering, relative timestamps, and visual editor support |
 | `matter-saver-topology-card` | Thread topology tree grouped by routers and their child devices |
-| `matter-saver-mesh-card` | Interactive Thread mesh network visualization |
+| `matter-saver-mesh-card` | Interactive Thread mesh network visualization with signal-colored links |
 
 The visual editor exposes card-specific options such as title overrides, default sorting and filters, topology or legend visibility, log entry limits, and mesh graph height, while preserving Home Assistant's built-in `Visibility` and `Layout` controls.
 
