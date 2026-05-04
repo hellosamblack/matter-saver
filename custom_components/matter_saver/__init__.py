@@ -243,7 +243,11 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @staticmethod
     def _parse_period_timestamp(value: Any) -> datetime | None:
-        """Parse a stored offline-history timestamp."""
+        """Parse a stored offline-history timestamp.
+
+        Naive timestamps are treated as UTC so historical data can still be
+        compared with the coordinator's timezone-aware timestamps.
+        """
         if not value:
             return None
         try:
@@ -303,7 +307,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Older persisted data may contain an open period from a previous Home
         Assistant session. Reconstruct the last observed end by adding the
         previously tracked observed duration to the stored start time so the
-        restart gap is not counted as device downtime.
+        restart gap is not counted as device downtime. If the stored start is
+        invalid, fall back to ``now_dt`` so the caller can safely close the
+        malformed period without raising.
         """
         start = cls._period_start(period)
         if start is None:
@@ -328,11 +334,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Historical data may contain `observed_minutes` from the old
         # per-refresh tracking logic. Fall back to `duration_min` for older
         # closed periods that never stored the observed field explicitly.
-        observed_minutes = (
-            period["observed_minutes"]
-            if "observed_minutes" in period
-            else period.get("duration_min", 0)
-        )
+        observed_minutes = period.get("observed_minutes")
+        if observed_minutes is None:
+            observed_minutes = period.get("duration_min", 0)
         try:
             return max(0, int(observed_minutes))
         except (TypeError, ValueError):
@@ -399,6 +403,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._close_offline_period(open_period, stale_end)
                     history_changed = True
                 if not available:
+                    # If the node is still offline after startup, begin a new
+                    # runtime-local open period that only tracks downtime we can
+                    # observe in this Home Assistant session.
                     history.insert(0, self._start_offline_period(now))
                     self.offline_history[nid] = history[:50]
                     open_period = self.offline_history[nid][0]
