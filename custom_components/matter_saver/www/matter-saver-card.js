@@ -474,7 +474,6 @@ class MatterSaverCard extends HTMLElement {
     tabsEl.innerHTML = tabs.map((tab) =>
       `<button class="ms-tab" data-tab="${tab.id}">${this._escHtml(tab.label)}</button>`
     ).join("");
-    // Tab markup uses controlled templates; dynamic values are escaped before interpolation.
     contentEl.innerHTML = tabs.map((tab) =>
       `<div class="ms-tab-panel" data-tab="${tab.id}">${tab.html}</div>`
     ).join("");
