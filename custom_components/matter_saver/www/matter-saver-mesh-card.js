@@ -247,7 +247,7 @@ class MatterSaverMeshCard extends HTMLElement {
     }
 
     for (const node of this._nodes) {
-      if (oldPos[node.id]) {
+      if (this._viewMode === "logical" && oldPos[node.id]) {
         node.x = oldPos[node.id].x;
         node.y = oldPos[node.id].y;
         node.fixed = oldPos[node.id].fixed;
@@ -531,8 +531,8 @@ class MatterSaverMeshCard extends HTMLElement {
     const sideInset = options.sideInset ?? 16;
     const bottomInset = options.bottomInset ?? 16;
     const sortedNodes = [...nodes].sort((left, right) => {
-      const leftRank = NODE_ROLE_ORDER[left.role] ?? 50;
-      const rightRank = NODE_ROLE_ORDER[right.role] ?? 50;
+      const leftRank = NODE_ROLE_ORDER[left.role] ?? NODE_ROLE_ORDER.unknown;
+      const rightRank = NODE_ROLE_ORDER[right.role] ?? NODE_ROLE_ORDER.unknown;
       if (leftRank !== rightRank) {
         return leftRank - rightRank;
       }

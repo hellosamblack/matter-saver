@@ -682,7 +682,7 @@ class MatterSaverCardEditor extends HTMLElement {
     }
 
     if (this._initialized) {
-      this._renderExtraFields();
+      this._refreshDynamicFields();
     }
   }
 
@@ -713,7 +713,7 @@ class MatterSaverCardEditor extends HTMLElement {
 
     this._config = nextConfig;
     if (this._initialized) {
-      this._renderExtraFields();
+      this._refreshDynamicFields();
     }
     this.dispatchEvent(new CustomEvent("config-changed", {
       detail: { config: nextConfig },
@@ -738,7 +738,7 @@ class MatterSaverCardEditor extends HTMLElement {
 
     this._config = nextConfig;
     if (field.type === "location-order" && this._initialized) {
-      this._renderExtraFields();
+      this._refreshDynamicFields();
     }
     this.dispatchEvent(new CustomEvent("config-changed", {
       detail: { config: nextConfig },
@@ -858,7 +858,8 @@ class MatterSaverCardEditor extends HTMLElement {
   }
 
   _orderedLocationValues(field) {
-    const values = new Set(this._normalizeLocationValues(this._fieldValue(field)));
+    const savedOrder = this._normalizeLocationValues(this._fieldValue(field));
+    const values = new Set(savedOrder);
     for (const device of this._getEditorDevices()) {
       const rawValue = field.target === "floor" ? device.floor : device.area;
       const normalized = String(rawValue || "").trim();
@@ -868,7 +869,6 @@ class MatterSaverCardEditor extends HTMLElement {
     }
 
     return [...values].sort((left, right) => {
-      const savedOrder = this._normalizeLocationValues(this._fieldValue(field));
       const leftIndex = savedOrder.indexOf(left);
       const rightIndex = savedOrder.indexOf(right);
       if (leftIndex !== -1 || rightIndex !== -1) {
@@ -909,6 +909,10 @@ class MatterSaverCardEditor extends HTMLElement {
 
   _tEditor(key) {
     return window.MatterSaverCardUtils?.t(this._hass, key) || key;
+  }
+
+  _refreshDynamicFields() {
+    this._renderExtraFields();
   }
 }
 
