@@ -65,11 +65,16 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
     optional_fields = (
         ("a", node.get("area")),
         ("p", node.get("product_name")),
+        ("v", node.get("vendor_name")),
+        ("nl", node.get("node_label")),
+        ("sn", node.get("serial_number")),
         ("f", node.get("software_version_string")),
         ("m", node.get("error_comment")),
         ("mc", node.get("error_comment_codes")),
         ("pn", node.get("parent_name")),
         ("ls", node.get("last_seen")),
+        ("dc", node.get("date_commissioned")),
+        ("li", node.get("last_interview")),
     )
     for key, value in optional_fields:
         if value:
@@ -89,6 +94,8 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
         encoded["pi"] = node["parent_node_id"]
     if node.get("route_path"):
         encoded["rt"] = _encode_route_path(node["route_path"])
+    if node.get("tx_retries"):
+        encoded["tr"] = node["tx_retries"]
     if node.get("offline_24h_count"):
         encoded["c24"] = node["offline_24h_count"]
     if node.get("offline_24h_minutes"):
@@ -103,6 +110,10 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
         encoded["m30"] = node["offline_30d_minutes"]
     if node.get("battery_percent") is not None:
         encoded["b"] = round(node["battery_percent"], 1)
+    if node.get("signal_rssi") is not None:
+        encoded["sr"] = node["signal_rssi"]
+    if node.get("signal_lqi") is not None:
+        encoded["sq"] = node["signal_lqi"]
 
     return encoded
 

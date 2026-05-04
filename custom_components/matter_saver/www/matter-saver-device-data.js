@@ -27,34 +27,52 @@
   function normalizeDevice(device) {
     if (!device || typeof device !== "object") return {};
     const isCompactDevice = "i" in device;
-    if (!isCompactDevice) return device;
+
+    const nodeId = isCompactDevice ? device.i : device.node_id;
+    const product = isCompactDevice ? device.p : (device.product || device.product_name || "");
+    const nodeLabel = isCompactDevice ? device.nl : (device.node_label || "");
+    const name = isCompactDevice
+      ? (device.n || `Node ${device.i}`)
+      : (device.name || device.device_name || nodeLabel || product || (nodeId != null ? `Node ${nodeId}` : ""));
 
     return {
-      node_id: device.i,
-      name: device.n || `Node ${device.i}`,
-      area: device.a || "",
-      product: device.p || "",
-      status: device.av ? "online" : "offline",
-      power: normalizePower(device.w),
-      firmware: device.f || "",
-      update_available: Boolean(device.u),
-      thread_role: normalizeRole(device.r),
-      neighbors: device.k ?? 0,
-      children: device.ch ?? 0,
-      errors: device.e ?? 0,
-      error_comment: device.m || "",
-      error_comment_codes: Array.isArray(device.mc) ? device.mc : [],
-      parent: device.pn || "",
-      parent_node_id: device.pi ?? null,
-      route_path: [],
-      offline_24h_count: device.c24 ?? 0,
-      offline_24h_minutes: device.m24 ?? 0,
-      offline_7d_count: device.c7 ?? 0,
-      offline_7d_minutes: device.m7 ?? 0,
-      offline_30d_count: device.c30 ?? 0,
-      offline_30d_minutes: device.m30 ?? 0,
-      last_seen: device.ls || "",
-      battery: device.b,
+      node_id: nodeId,
+      name,
+      area: isCompactDevice ? (device.a || "") : (device.area || ""),
+      product,
+      vendor: isCompactDevice ? (device.v || "") : (device.vendor || device.vendor_name || ""),
+      node_label: nodeLabel,
+      serial_number: isCompactDevice ? (device.sn || "") : (device.serial_number || ""),
+      status: isCompactDevice
+        ? (device.av ? "online" : "offline")
+        : (device.status || (device.available ? "online" : "offline")),
+      power: normalizePower(isCompactDevice ? device.w : (device.power || device.power_source)),
+      firmware: isCompactDevice ? (device.f || "") : (device.firmware || device.software_version_string || ""),
+      update_available: isCompactDevice ? Boolean(device.u) : Boolean(device.update_available),
+      thread_role: normalizeRole(isCompactDevice ? device.r : device.thread_role),
+      neighbors: isCompactDevice ? (device.k ?? 0) : (device.neighbors ?? 0),
+      children: isCompactDevice ? (device.ch ?? 0) : (device.children ?? 0),
+      errors: isCompactDevice ? (device.e ?? 0) : (device.errors ?? 0),
+      error_comment: isCompactDevice ? (device.m || "") : (device.error_comment || ""),
+      error_comment_codes: isCompactDevice
+        ? (Array.isArray(device.mc) ? device.mc : [])
+        : (Array.isArray(device.error_comment_codes) ? device.error_comment_codes : []),
+      parent: isCompactDevice ? (device.pn || "") : (device.parent || device.parent_name || ""),
+      parent_node_id: isCompactDevice ? (device.pi ?? null) : (device.parent_node_id ?? null),
+      signal_rssi: isCompactDevice ? (device.sr ?? null) : (device.signal_rssi ?? null),
+      signal_lqi: isCompactDevice ? (device.sq ?? null) : (device.signal_lqi ?? null),
+      route_path: isCompactDevice ? [] : (Array.isArray(device.route_path) ? device.route_path : []),
+      tx_retries: isCompactDevice ? (device.tr ?? 0) : (device.tx_retries ?? 0),
+      offline_24h_count: isCompactDevice ? (device.c24 ?? 0) : (device.offline_24h_count ?? 0),
+      offline_24h_minutes: isCompactDevice ? (device.m24 ?? 0) : (device.offline_24h_minutes ?? 0),
+      offline_7d_count: isCompactDevice ? (device.c7 ?? 0) : (device.offline_7d_count ?? 0),
+      offline_7d_minutes: isCompactDevice ? (device.m7 ?? 0) : (device.offline_7d_minutes ?? 0),
+      offline_30d_count: isCompactDevice ? (device.c30 ?? 0) : (device.offline_30d_count ?? 0),
+      offline_30d_minutes: isCompactDevice ? (device.m30 ?? 0) : (device.offline_30d_minutes ?? 0),
+      last_seen: isCompactDevice ? (device.ls || "") : (device.last_seen || ""),
+      date_commissioned: isCompactDevice ? (device.dc || "") : (device.date_commissioned || ""),
+      last_interview: isCompactDevice ? (device.li || "") : (device.last_interview || ""),
+      battery: isCompactDevice ? device.b : (device.battery ?? device.battery_percent),
     };
   }
 

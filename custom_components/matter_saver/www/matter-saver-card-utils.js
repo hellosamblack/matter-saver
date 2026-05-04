@@ -15,6 +15,7 @@
       hourAgo: "{count}h ago",
       dayAgo: "{count}d ago",
       routeTitle: "Route: {name}",
+      routePath: "Route",
       unknown: "Unknown",
       borderRouterGateway: "Border Router Gateway",
       online: "online",
@@ -28,18 +29,37 @@
       neighbors: "Neighbors",
       children: "Children",
       parent: "Parent",
+      parentNodeId: "Parent Node ID",
+      signal: "Signal",
+      signalQuality: "Signal Quality",
+      signalRssi: "RSSI",
+      signalLqi: "LQI",
       power: "Power",
       battery: "Battery",
       firmware: "Firmware",
+      vendor: "Vendor",
+      label: "Label",
+      serialNumber: "Serial Number",
+      commissioned: "Commissioned",
+      lastInterview: "Last Interview",
+      txRetries: "TX Retries",
+      update: "Update",
       errors: "Errors",
       lastSeen: "Last Seen",
       nodeId: "Node ID",
       diagnostics: "Diagnostics",
+      issueCodes: "Issue Codes",
       downtime24h: "24h Downtime",
       downtime7d: "7d Downtime",
       offline24h: "Offline 24h",
       offline7d: "Offline 7d",
       offline30d: "Offline 30d",
+      offline24hCount: "24h Offline Count",
+      offline24hDuration: "24h Offline Duration",
+      offline7dCount: "7d Offline Count",
+      offline7dDuration: "7d Offline Duration",
+      offline30dCount: "30d Offline Count",
+      offline30dDuration: "30d Offline Duration",
       repairHistory: "Repair history",
       onlineGroup: "Online",
       offlineGroup: "Offline",
@@ -73,9 +93,24 @@
       unassignedEndDevices: "Unassigned end devices",
       parentLegend: "Parent",
       neighborLegend: "Neighbor",
+      strongSignal: "Strong signal",
+      fairSignal: "Fair signal",
+      weakSignal: "Weak signal",
+      unknownSignal: "Unknown signal",
+      routeHopCount: "Route Hop Count",
+      routeDetails: "Route Details",
+      notAvailable: "Not available",
       reset: "Reset",
       batteryLabel: "Battery: {value}%",
+      updateAvailable: "Available",
+      upToDate: "Current",
       offlineBadge: "OFFLINE",
+      overviewTab: "Overview",
+      threadTab: "Thread",
+      diagnosticsTab: "Diagnostics",
+      historyTab: "History",
+      actionsTab: "Actions",
+      noHistory: "No activity for this device yet",
       autoRecoveryPingFailed: "Auto-Recovery: ping failed",
       autoRecoveryPingOk: "Auto-Recovery: ping ok, starting re-interview",
       autoRecoveryInterviewFailed: "Auto-Recovery: re-interview failed",
@@ -124,6 +159,7 @@
       hourAgo: "vor {count}h",
       dayAgo: "vor {count}d",
       routeTitle: "Route: {name}",
+      routePath: "Route",
       unknown: "Unbekannt",
       borderRouterGateway: "Border-Router-Gateway",
       online: "online",
@@ -137,18 +173,37 @@
       neighbors: "Nachbarn",
       children: "Kinder",
       parent: "Parent",
+      parentNodeId: "Parent Node ID",
+      signal: "Signal",
+      signalQuality: "Signalqualität",
+      signalRssi: "RSSI",
+      signalLqi: "LQI",
       power: "Strom",
       battery: "Batterie",
       firmware: "Firmware",
+      vendor: "Hersteller",
+      label: "Label",
+      serialNumber: "Seriennummer",
+      commissioned: "Kommissioniert",
+      lastInterview: "Letztes Interview",
+      txRetries: "TX Retries",
+      update: "Update",
       errors: "Fehler",
       lastSeen: "Zuletzt gesehen",
       nodeId: "Node ID",
       diagnostics: "Diagnose",
+      issueCodes: "Issue Codes",
       downtime24h: "24h Ausfall",
       downtime7d: "7d Ausfall",
       offline24h: "Offline 24h",
       offline7d: "Offline 7d",
       offline30d: "Offline 30d",
+      offline24hCount: "Offline-Anzahl 24h",
+      offline24hDuration: "Offline-Dauer 24h",
+      offline7dCount: "Offline-Anzahl 7d",
+      offline7dDuration: "Offline-Dauer 7d",
+      offline30dCount: "Offline-Anzahl 30d",
+      offline30dDuration: "Offline-Dauer 30d",
       repairHistory: "Reparaturverlauf",
       onlineGroup: "Online",
       offlineGroup: "Offline",
@@ -182,9 +237,24 @@
       unassignedEndDevices: "Nicht zugeordnete End Devices",
       parentLegend: "Parent",
       neighborLegend: "Nachbar",
+      strongSignal: "Starkes Signal",
+      fairSignal: "Mittleres Signal",
+      weakSignal: "Schwaches Signal",
+      unknownSignal: "Unbekanntes Signal",
+      routeHopCount: "Route-Hop-Anzahl",
+      routeDetails: "Route-Details",
+      notAvailable: "Nicht verfügbar",
       reset: "Reset",
       batteryLabel: "Batterie: {value}%",
+      updateAvailable: "Verfügbar",
+      upToDate: "Aktuell",
       offlineBadge: "OFFLINE",
+      overviewTab: "Übersicht",
+      threadTab: "Thread",
+      diagnosticsTab: "Diagnose",
+      historyTab: "Verlauf",
+      actionsTab: "Aktionen",
+      noHistory: "Noch keine Aktivitäten für dieses Gerät",
       autoRecoveryPingFailed: "Auto-Recovery: Ping fehlgeschlagen",
       autoRecoveryPingOk: "Auto-Recovery: Ping OK, starte Re-Interview",
       autoRecoveryInterviewFailed: "Auto-Recovery: Re-Interview fehlgeschlagen",
@@ -420,6 +490,29 @@
     return `${count} ${t(hass, count === 1 ? "entry_one" : "entry_other")}`;
   }
 
+  function hasNumericValue(value) {
+    return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+  }
+
+  function signalInfo(rssi) {
+    if (!hasNumericValue(rssi)) {
+      return { level: "unknown", color: "rgba(255,255,255,0.25)" };
+    }
+    const value = Number(rssi);
+    if (value > -70) return { level: "strong", color: "#4caf50" };
+    if (value > -85) return { level: "fair", color: "#ff9800" };
+    return { level: "weak", color: "#f44336" };
+  }
+
+  function formatSignal(hass, rssi, lqi) {
+    const hasRssi = hasNumericValue(rssi);
+    const hasLqi = hasNumericValue(lqi);
+    if (!hasRssi && !hasLqi) return t(hass, "unknownSignal");
+    if (!hasRssi) return `LQI ${Number(lqi)}/3`;
+    const base = `${Math.round(Number(rssi))} dBm`;
+    return hasLqi ? `${base} • LQI ${Number(lqi)}/3` : base;
+  }
+
   function hasCompactDevices(devices) {
     return Array.isArray(devices) && devices.some((device) => (
       device
@@ -457,6 +550,8 @@
     t,
     actionLabel,
     roleLabel,
+    signalInfo,
+    formatSignal,
     formatDate,
     formatRelativeTime,
     formatCountLabel,
