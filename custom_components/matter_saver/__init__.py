@@ -247,9 +247,12 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not value:
             return None
         try:
-            return datetime.fromisoformat(str(value))
+            parsed = datetime.fromisoformat(str(value))
         except (TypeError, ValueError):
             return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
 
     @classmethod
     def _period_start(cls, period: dict[str, Any]) -> datetime | None:
@@ -299,6 +302,8 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start = cls._period_start(period)
         if start is None:
             return now_dt
+        # Keep supporting historical periods saved before stale-open migration
+        # so existing persisted data is closed at the last known observed point.
         observed_minutes = period.get("observed_minutes", period.get("duration_min", 0))
         try:
             observed_minutes_int = max(0, int(observed_minutes or 0))
@@ -376,6 +381,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if not available:
                     history.insert(0, self._start_offline_period(now))
                     self.offline_history[nid] = history[:50]
+                    open_period = self.offline_history[nid][0]
                     history_changed = True
 
             if prev is not None and prev != available:
