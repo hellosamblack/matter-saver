@@ -93,6 +93,7 @@ class MatterSaverMeshCard extends HTMLElement {
       node.fixed = false;
       node.x = 0;
       node.y = 0;
+      delete node.labelPosition;
     }
   }
 

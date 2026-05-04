@@ -431,6 +431,29 @@ class MatterSaverCardEditor extends HTMLElement {
           user-select: none;
           flex-shrink: 0;
         }
+        .ms-editor__order-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-shrink: 0;
+        }
+        .ms-editor__order-button {
+          border: 1px solid var(--divider-color, rgba(255,255,255,0.16));
+          background: transparent;
+          color: var(--primary-text-color);
+          border-radius: 8px;
+          width: 28px;
+          height: 28px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 0.95rem;
+        }
+        .ms-editor__order-button:disabled {
+          opacity: 0.45;
+          cursor: default;
+        }
         .ms-editor__order-empty {
           color: var(--secondary-text-color);
           font-size: 0.85rem;
@@ -1048,6 +1071,7 @@ class MatterSaverCardEditor extends HTMLElement {
     row.dataset.groupKey = group.key;
     row.dataset.value = value;
     row.setAttribute("aria-label", `${this._locationValueLabel(field, value)} — ${field.target === "floor" ? this._tEditor("editorTopToBottom") : this._tEditor("editorLeftToRight")}`);
+    const itemIndex = group.values.indexOf(value);
 
     const labelWrap = document.createElement("div");
     labelWrap.className = "ms-editor__order-label";
@@ -1069,7 +1093,31 @@ class MatterSaverCardEditor extends HTMLElement {
     handle.textContent = "⋮⋮";
     handle.setAttribute("aria-hidden", "true");
 
-    row.append(labelWrap, handle);
+    const actions = document.createElement("div");
+    actions.className = "ms-editor__order-actions";
+
+    const moveUp = document.createElement("button");
+    moveUp.type = "button";
+    moveUp.className = "ms-editor__order-button";
+    moveUp.textContent = "↑";
+    moveUp.disabled = itemIndex <= 0;
+    moveUp.setAttribute("aria-label", this._tEditor("editorMoveItemUp", { name: this._locationValueLabel(field, value) }));
+    moveUp.addEventListener("click", () => {
+      this._updateField(field, this._shiftLocationValue(groups, group.key, value, -1));
+    });
+
+    const moveDown = document.createElement("button");
+    moveDown.type = "button";
+    moveDown.className = "ms-editor__order-button";
+    moveDown.textContent = "↓";
+    moveDown.disabled = itemIndex === -1 || itemIndex >= group.values.length - 1;
+    moveDown.setAttribute("aria-label", this._tEditor("editorMoveItemDown", { name: this._locationValueLabel(field, value) }));
+    moveDown.addEventListener("click", () => {
+      this._updateField(field, this._shiftLocationValue(groups, group.key, value, 1));
+    });
+
+    actions.append(moveUp, moveDown, handle);
+    row.append(labelWrap, actions);
 
     row.addEventListener("dragstart", (event) => {
       this._dragState = {
@@ -1159,9 +1207,32 @@ class MatterSaverCardEditor extends HTMLElement {
     const [moved] = targetGroup.values.splice(fromIndex, 1);
     let insertIndex = before ? targetIndex : targetIndex + 1;
     if (insertIndex > fromIndex) {
+      // Removing the dragged item shifts later items left by one, so adjust the
+      // insertion point when dropping after the original position.
       insertIndex -= 1;
     }
     targetGroup.values.splice(insertIndex, 0, moved);
+    return nextGroups.flatMap((group) => group.values);
+  }
+
+  _shiftLocationValue(groups, groupKey, value, offset) {
+    const nextGroups = groups.map((group) => ({
+      ...group,
+      values: [...group.values],
+    }));
+    const targetGroup = nextGroups.find((group) => group.key === groupKey);
+    if (!targetGroup) {
+      return nextGroups.flatMap((group) => group.values);
+    }
+
+    const fromIndex = targetGroup.values.indexOf(value);
+    const toIndex = fromIndex + offset;
+    if (fromIndex === -1 || toIndex < 0 || toIndex >= targetGroup.values.length) {
+      return nextGroups.flatMap((group) => group.values);
+    }
+
+    const [moved] = targetGroup.values.splice(fromIndex, 1);
+    targetGroup.values.splice(toIndex, 0, moved);
     return nextGroups.flatMap((group) => group.values);
   }
 }
