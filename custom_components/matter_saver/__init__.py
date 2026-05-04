@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor", "update"]
+PLATFORMS = ["sensor"]
 LOVELACE_CARD_FILENAMES = (
     "matter-saver-card-utils.js",
     "matter-saver-device-data.js",
@@ -44,7 +44,6 @@ LOVELACE_CARD_FILENAMES = (
     "matter-saver-mesh-card.js",
 )
 LOVELACE_RESOURCE_KEY = "lovelace_resources_registered"
-UPDATE_ICON_URL = f"/api/{DOMAIN}/icon.png"
 
 type MatterSaverConfigEntry = ConfigEntry[MatterSaverCoordinator]
 
@@ -405,6 +404,150 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _format_thread_ext_address(value: Any) -> str:
+        """Return a normalized 16-character uppercase Thread extended address."""
+        if value is None or value == "":
+            return ""
+        if isinstance(value, str):
+            normalized = value.strip().replace(":", "").replace("-", "").upper()
+            if normalized.startswith("0X"):
+                normalized = normalized[2:]
+            if not normalized:
+                return ""
+            try:
+                return f"{int(normalized, 16):016X}"
+            except ValueError:
+                return normalized if len(normalized) == 16 else ""
+        coerced = MatterSaverCoordinator._coerce_int(value)
+        if coerced is None:
+            return ""
+        return f"{coerced & 0xFFFFFFFFFFFFFFFF:016X}"
+
+    @classmethod
+    def _extract_device_type_ids(cls, attributes: dict[str, Any]) -> list[int]:
+        """Extract Descriptor cluster device type IDs."""
+        raw_device_types = cls._get_matter_attr(attributes, 29, 0, [])
+        if not isinstance(raw_device_types, list):
+            return []
+
+        device_type_ids: list[int] = []
+        for entry in raw_device_types:
+            if isinstance(entry, dict):
+                candidate = entry.get("0", entry.get("deviceType"))
+            else:
+                candidate = entry
+            coerced = cls._coerce_int(candidate)
+            if coerced is not None and coerced not in device_type_ids:
+                device_type_ids.append(coerced)
+        return device_type_ids
+
+    @staticmethod
+    def _signal_candidate(rssi: Any, lqi: Any) -> dict[str, int | None]:
+        """Normalize RSSI/LQI values for comparisons and payloads."""
+        return {
+            "rssi": MatterSaverCoordinator._coerce_int(rssi),
+            "lqi": MatterSaverCoordinator._coerce_int(lqi),
+        }
+
+    @staticmethod
+    def _better_signal(
+        current: dict[str, int | None] | None,
+        candidate: dict[str, int | None],
+    ) -> bool:
+        """Return True when the candidate signal is more useful."""
+        if current is None:
+            return candidate.get("rssi") is not None or candidate.get("lqi") is not None
+
+        current_lqi = current.get("lqi")
+        candidate_lqi = candidate.get("lqi")
+        if current_lqi is None and candidate_lqi is not None:
+            return True
+        if current_lqi is not None and candidate_lqi is not None and candidate_lqi > current_lqi:
+            return True
+
+        current_rssi = current.get("rssi")
+        candidate_rssi = candidate.get("rssi")
+        if current_rssi is None and candidate_rssi is not None:
+            return True
+        if current_rssi is not None and candidate_rssi is not None and candidate_rssi > current_rssi:
+            return True
+        return False
+
+    @staticmethod
+    def _border_router_name(entry: dict[str, Any]) -> str:
+        """Return the best available label for a discovered border router."""
+        model_name = str(entry.get("modelName") or "").strip()
+        vendor_name = str(entry.get("vendorName") or "").strip()
+        hostname = str(entry.get("hostname") or "").strip().rstrip(".")
+        network_name = str(entry.get("networkName") or "").strip()
+        if vendor_name and model_name:
+            return f"{vendor_name} {model_name}"
+        if model_name:
+            return model_name
+        if hostname:
+            return hostname
+        if network_name:
+            return f"{network_name} Border Router"
+        return "Thread Border Router"
+
+    @classmethod
+    def _normalize_border_routers(
+        cls,
+        raw_entries: Any,
+        nodes: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Normalize discovered Thread border routers for Lovelace cards."""
+        if not isinstance(raw_entries, list):
+            return []
+
+        known_ext_addresses = {
+            ext_address: node["node_id"]
+            for node in nodes
+            if (ext_address := node.get("thread_ext_address"))
+        }
+        discovered_links: dict[str, list[dict[str, Any]]] = {}
+        for node in nodes:
+            for ext_address, signal in node.get("_external_thread_neighbors", {}).items():
+                if ext_address in known_ext_addresses:
+                    continue
+                links = discovered_links.setdefault(ext_address, [])
+                links.append({
+                    "node_id": node["node_id"],
+                    "rssi": signal.get("rssi"),
+                    "lqi": signal.get("lqi"),
+                })
+
+        normalized_entries: list[dict[str, Any]] = []
+        seen_addresses: set[str] = set()
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            ext_address = cls._format_thread_ext_address(
+                entry.get("extAddressHex")
+                or entry.get("ext_address")
+                or entry.get("extAddress")
+            )
+            if not ext_address or ext_address in seen_addresses or ext_address in known_ext_addresses:
+                continue
+            seen_addresses.add(ext_address)
+
+            addresses = entry.get("addresses", [])
+            normalized_entries.append({
+                "ext_address": ext_address,
+                "name": cls._border_router_name(entry),
+                "vendor_name": str(entry.get("vendorName") or ""),
+                "model_name": str(entry.get("modelName") or ""),
+                "hostname": str(entry.get("hostname") or "").rstrip("."),
+                "network_name": str(entry.get("networkName") or ""),
+                "last_seen": cls._coerce_int(entry.get("lastSeen")),
+                "addresses": [str(address) for address in addresses] if isinstance(addresses, list) else [],
+                "links": discovered_links.get(ext_address, []),
+            })
+
+        normalized_entries.sort(key=lambda item: item["name"].lower())
+        return normalized_entries
+
     @classmethod
     def _normalize_recent_parent(cls, value: Any) -> dict[str, Any] | None:
         """Normalize persisted recent-parent metadata."""
@@ -640,23 +783,45 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Matter Server sends server info on connect - read and discard
                 await asyncio.wait_for(ws.receive(), timeout=5)
 
-                # Send get_nodes command
-                request = {
-                    "message_id": "1",
-                    "command": "get_nodes",
-                }
-                await ws.send_json(request)
+                async def _ws_command(
+                    message_id: str,
+                    command: str,
+                    args: dict[str, Any] | None = None,
+                    timeout: int = 15,
+                ) -> Any:
+                    request: dict[str, Any] = {
+                        "message_id": message_id,
+                        "command": command,
+                    }
+                    if args:
+                        request["args"] = args
+                    await ws.send_json(request)
+                    msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                    if msg.type != aiohttp.WSMsgType.TEXT:
+                        raise UpdateFailed(
+                            f"Unexpected WebSocket message type: {msg.type}"
+                        )
+                    payload = json.loads(msg.data)
+                    if isinstance(payload, dict) and "result" in payload:
+                        return payload["result"]
+                    return payload
 
-                # Read response
-                msg = await asyncio.wait_for(ws.receive(), timeout=15)
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    if light:
-                        # Quick parse for startup - no registry lookups
-                        return self._parse_nodes_light(data)
-                    return self._parse_nodes(data)
+                node_payload = await _ws_command("1", "get_nodes")
+                if light:
+                    # Quick parse for startup - no registry lookups
+                    return self._parse_nodes_light(node_payload)
 
-                raise UpdateFailed(f"Unexpected WebSocket message type: {msg.type}")
+                border_router_payload: Any = []
+                try:
+                    border_router_payload = await _ws_command(
+                        "2",
+                        "get_thread_border_routers",
+                        timeout=10,
+                    )
+                except (UpdateFailed, asyncio.TimeoutError, ValueError, TypeError):
+                    border_router_payload = []
+
+                return self._parse_nodes(node_payload, border_router_payload)
         finally:
             await session.close()
 
@@ -696,6 +861,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "software_version_string": self._get_matter_attr(attributes, 40, 10, ""),
                 "date_commissioned": node.get("date_commissioned", ""),
                 "last_interview": node.get("last_interview", ""),
+                "device_type_ids": self._extract_device_type_ids(attributes),
                 "update_available": False,
                 "thread_role": "unknown",
                 "neighbors": 0, "children": 0,
@@ -716,6 +882,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "nodes": nodes, "total": len(nodes),
             "online": online_count, "offline": offline_count,
             "activity_log": self.activity_log,
+            "border_routers": [],
         }
 
     def _build_node_device_map(self) -> dict[int, dict[str, str]]:
@@ -774,7 +941,11 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         continue
         return node_map
 
-    def _parse_nodes(self, data: Any) -> dict[str, Any]:
+    def _parse_nodes(
+        self,
+        data: Any,
+        border_router_entries: Any = None,
+    ) -> dict[str, Any]:
         """Parse the Matter Server response into structured data."""
         node_device_map = self._build_node_device_map()
         nodes = []
@@ -820,6 +991,10 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "software_version_string": self._get_matter_attr(attributes, 40, 10, ""),
                 "date_commissioned": node.get("date_commissioned", ""),
                 "last_interview": node.get("last_interview", ""),
+                "device_type_ids": self._extract_device_type_ids(attributes),
+                "thread_ext_address": self._format_thread_ext_address(
+                    self._get_matter_attr(attributes, 53, 63, None)
+                ),
             }
 
             # Thread role (cluster 53, attr 1 = RoutingRole)
@@ -899,15 +1074,19 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Track last_seen: update when device is available,
             # fallback to last_interview from Matter Server
+            last_interview = node.get("last_interview", "")
+            existing_last_seen = self._last_seen.get(node_id, "")
+            previous_available = self._previous_status.get(node_id)
             if available:
-                self._last_seen[node_id] = datetime.now(timezone.utc).isoformat()
+                if previous_available is False or not existing_last_seen:
+                    self._last_seen[node_id] = datetime.now(timezone.utc).isoformat()
+                elif last_interview and last_interview > existing_last_seen:
+                    self._last_seen[node_id] = last_interview
                 online_count += 1
             else:
                 # Always update from last_interview if it's more recent
-                last_interview = node.get("last_interview", "")
                 if last_interview:
-                    existing = self._last_seen.get(node_id, "")
-                    if not existing or last_interview > existing:
+                    if not existing_last_seen or last_interview > existing_last_seen:
                         self._last_seen[node_id] = last_interview
                 offline_count += 1
 
@@ -971,16 +1150,26 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Store router neighbor info (RSSI to other routers)
             node_info["_router_neighbors"] = {}
+            node_info["_external_thread_neighbors"] = {}
+            best_neighbor_signal: dict[str, int | None] | None = None
             if thread_role_val in (4, 5, 6) and isinstance(neighbor_table, list):
                 for nb in neighbor_table:
                     if isinstance(nb, dict) and not nb.get("13", False):
+                        signal_candidate = self._signal_candidate(nb.get("7"), nb.get("5"))
+                        if self._better_signal(best_neighbor_signal, signal_candidate):
+                            best_neighbor_signal = signal_candidate
                         nb_rloc = nb.get("2", 0)
                         nb_base = (nb_rloc >> 10) * 1024 if nb_rloc else None
                         if nb_base is not None:
                             node_info["_router_neighbors"][nb_base] = {
-                                "rssi": nb.get("7"),
-                                "lqi": nb.get("5"),
+                                **signal_candidate,
                             }
+                        ext_address = self._format_thread_ext_address(nb.get("0"))
+                        if ext_address:
+                            node_info["_external_thread_neighbors"][ext_address] = {
+                                **signal_candidate,
+                            }
+            node_info["_best_neighbor_signal"] = best_neighbor_signal
 
             node_info["last_seen"] = self._last_seen.get(node_id, "")
             nodes.append(node_info)
@@ -1006,6 +1195,7 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             parent_lqi = n.pop("_parent_lqi", None)
             rloc_base = n.pop("_rloc_base", None)
             router_neighbors = n.pop("_router_neighbors", {})
+            fallback_signal = n.pop("_best_neighbor_signal", None)
             recent_parent = self._recent_parents.get(n["node_id"])
             resolved_parent = None
             resolved_parent_rssi = parent_rssi
@@ -1082,8 +1272,9 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ),
                 None,
             )
-            n["signal_rssi"] = None if signal_hop is None else signal_hop.get("rssi")
-            n["signal_lqi"] = None if signal_hop is None else signal_hop.get("lqi")
+            signal_source = signal_hop or fallback_signal or {}
+            n["signal_rssi"] = signal_source.get("rssi")
+            n["signal_lqi"] = signal_source.get("lqi")
 
             if (
                 self._is_child_device_role(n["thread_role"])
@@ -1106,6 +1297,10 @@ class MatterSaverCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "total": len(nodes),
             "online": online_count,
             "offline": offline_count,
+            "border_routers": self._normalize_border_routers(
+                border_router_entries,
+                nodes,
+            ),
         }
 
     async def send_matter_command(
@@ -1172,7 +1367,6 @@ async def _async_register_lovelace_resources(hass: HomeAssistant) -> None:
     static_paths: list[StaticPathConfig] = []
     resource_urls: list[str] = []
     cards_path = Path(__file__).parent / "www"
-    brand_icon_path = Path(__file__).parent / "brand" / "icon.png"
 
     for filename in LOVELACE_CARD_FILENAMES:
         asset_path = cards_path / filename
@@ -1186,17 +1380,6 @@ async def _async_register_lovelace_resources(hass: HomeAssistant) -> None:
             StaticPathConfig(url, str(asset_path), cache_headers=True)
         )
         resource_urls.append(f"{url}?v={version}")
-
-    if brand_icon_path.is_file():
-        static_paths.append(
-            StaticPathConfig(
-                UPDATE_ICON_URL,
-                str(brand_icon_path),
-                cache_headers=True,
-            )
-        )
-    else:
-        _LOGGER.warning("Missing Matter Saver brand icon: %s", brand_icon_path)
 
     if static_paths:
         await hass.http.async_register_static_paths(static_paths)
@@ -1284,10 +1467,64 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatterSaverConfigEntry) 
 
     async def handle_reset_counters(call: ServiceCall) -> None:
         """Reset Thread diagnostic counters for a node."""
+        from homeassistant.exceptions import HomeAssistantError
+
         node_id = call.data["node_id"]
-        result = await _run_action(node_id, "reset", "device_command", {
-            "node_id": node_id, "endpoint_id": 0,
-            "cluster_id": 53, "command_name": "ResetCounts", "payload": {},
+        name = _node_name(node_id)
+        action_label = _action_label_en("reset")
+        coordinator.add_log(
+            "action",
+            node_id,
+            name,
+            f"{action_label} started",
+            message_key="action_started",
+            action="reset",
+        )
+
+        result = await coordinator.send_matter_command("device_command", {
+            "node_id": node_id,
+            "endpoint_id": 0,
+            "cluster_id": 53,
+            "command_name": "resetCounts",
+            "payload": {},
+        })
+        if isinstance(result, dict) and "error" in result:
+            fallback_result = await coordinator.send_matter_command("device_command", {
+                "node_id": node_id,
+                "endpoint_id": 0,
+                "cluster_id": 53,
+                "command_name": "ResetCounts",
+                "payload": {},
+            })
+            if not (isinstance(fallback_result, dict) and "error" in fallback_result):
+                result = fallback_result
+
+        if isinstance(result, dict) and "error" in result:
+            error_msg = result["error"]
+            coordinator.add_log(
+                "error",
+                node_id,
+                name,
+                f"{action_label} failed: {error_msg}",
+                message_key="action_failed",
+                action="reset",
+                error=error_msg,
+            )
+            raise HomeAssistantError(f"{action_label} failed: {error_msg}")
+
+        coordinator.add_log(
+            "success",
+            node_id,
+            name,
+            f"{action_label} succeeded",
+            message_key="action_succeeded",
+            action="reset",
+        )
+        await asyncio.sleep(1)
+        await coordinator.send_matter_command("read_attribute", {
+            "node_id": node_id,
+            "attribute_path": "0/53/*",
+            "fabric_filtered": False,
         })
         await coordinator.async_request_refresh()
         hass.bus.async_fire(f"{DOMAIN}_action_result", {

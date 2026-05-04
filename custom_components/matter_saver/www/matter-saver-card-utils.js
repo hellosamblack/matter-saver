@@ -5,6 +5,7 @@
     area: "::matter_saver_internal_no_area::",
   };
   const ROUTING_ROLES = new Set(["leader", "router", "reed"]);
+  const LIGHT_DEVICE_TYPES = new Set([256, 257, 268, 269]);
   const AREA_NAME_BOUNDARY_PATTERN = "[\\s\\-–—:()\\[\\],/]+";
   const DEVICE_ICON_RULES = [
     { icon: "mdi:home-lock", patterns: [/\b(lock|deadbolt|door lock)\b/i] },
@@ -44,6 +45,7 @@
       routePath: "Route",
       unknown: "Unknown",
       borderRouterGateway: "Border Router Gateway",
+      borderRouter: "Border Router",
       online: "online",
       offline: "offline",
       node: "Node",
@@ -208,6 +210,7 @@
       routePath: "Route",
       unknown: "Unbekannt",
       borderRouterGateway: "Border-Router-Gateway",
+      borderRouter: "Border Router",
       online: "online",
       offline: "offline",
       node: "Node",
@@ -613,6 +616,13 @@
 
     if (device.node_id === "ha" || device.role === "ha") {
       return "mdi:home-assistant";
+    }
+
+    const deviceTypeIds = Array.isArray(device.device_type_ids)
+      ? device.device_type_ids.map((value) => Number(value)).filter(Number.isFinite)
+      : [];
+    if (deviceTypeIds.some((deviceTypeId) => LIGHT_DEVICE_TYPES.has(deviceTypeId))) {
+      return "mdi:lightbulb";
     }
 
     const haystack = [

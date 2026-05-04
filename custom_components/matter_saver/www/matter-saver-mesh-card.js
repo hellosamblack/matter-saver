@@ -10,10 +10,11 @@ const NODE_ROLE_ORDER = {
   leader: 0,
   router: 1,
   reed: 2,
-  end_device: 3,
-  sed: 4,
-  unknown: 5,
-  ha: 6,
+  border_router: 3,
+  end_device: 4,
+  sed: 5,
+  unknown: 6,
+  ha: 7,
 };
 
 class MatterSaverMeshCard extends HTMLElement {
@@ -33,6 +34,9 @@ class MatterSaverMeshCard extends HTMLElement {
     this._isPanning = false;
     this._panStartX = 0;
     this._panStartY = 0;
+    this._dragStartX = 0;
+    this._dragStartY = 0;
+    this._dragMoved = false;
     this._deviceDataError = "";
     this._viewMode = "logical";
     this._floorOrder = [];
@@ -146,6 +150,7 @@ class MatterSaverMeshCard extends HTMLElement {
           <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#ffb300"></span> ${this._threadRoleLabel("leader")}</span>
           <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#4caf50"></span> ${this._threadRoleLabel("router")}</span>
           <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#8bc34a"></span> ${this._threadRoleLabel("reed")}</span>
+          <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#26c6da"></span> ${this._esc(this._t("borderRouter"))}</span>
           <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#78909c"></span> ${this._threadRoleLabel("end_device")}</span>
           <span class="mm-legend-item"><span class="mm-legend-dot" style="background:#03a9f4"></span> ${this._t("homeAssistant")}</span>
           <span class="mm-legend-item"><span style="width:20px;height:2px;background:#4caf50;display:inline-block"></span> ${this._t("strongSignal")}</span>
@@ -191,6 +196,9 @@ class MatterSaverMeshCard extends HTMLElement {
       if (this._dragging) {
         const svg = this.querySelector("#mm-svg");
         const rect = svg.getBoundingClientRect();
+        if (Math.abs(e.clientX - this._dragStartX) > 4 || Math.abs(e.clientY - this._dragStartY) > 4) {
+          this._dragMoved = true;
+        }
         this._dragging.x = (e.clientX - rect.left - this._panX) / this._scale;
         this._dragging.y = (e.clientY - rect.top - this._panY) / this._scale;
         this._dragging.fixed = true;
@@ -201,11 +209,13 @@ class MatterSaverMeshCard extends HTMLElement {
       this._isPanning = false;
       this._dragging = null;
       wrap.classList.remove("grabbing");
+      setTimeout(() => { this._dragMoved = false; }, 0);
     });
     wrap.addEventListener("mouseleave", () => {
       this._isPanning = false;
       this._dragging = null;
       wrap.classList.remove("grabbing");
+      this._dragMoved = false;
     });
     wrap.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -222,6 +232,7 @@ class MatterSaverMeshCard extends HTMLElement {
     const state = this._hass.states[this._entityId];
     if (!state) return;
     const devices = this._getDevices(state);
+    const borderRouters = this._getBorderRouters(state);
 
     const oldPos = {};
     for (const node of this._nodes) {
@@ -238,6 +249,7 @@ class MatterSaverMeshCard extends HTMLElement {
       icon: "mdi:home-assistant",
       radius: 20, x: 0, y: 0, fixed: false,
       children: 0, neighbors: 0, area: "", floor: "", product: "Border Router",
+      kind: "home_assistant",
     });
 
     for (const device of devices) {
@@ -252,6 +264,33 @@ class MatterSaverMeshCard extends HTMLElement {
         area: device.area || "", floor: device.floor || "", product: device.product || "",
         battery: device.battery, errors: device.errors || 0,
         parent_node_id: device.parent_node_id,
+        kind: "device",
+      });
+    }
+
+    for (const borderRouter of borderRouters) {
+      this._nodes.push({
+        id: `br:${borderRouter.ext_address}`,
+        name: borderRouter.name || this._t("borderRouter"),
+        display_name: borderRouter.name || this._t("borderRouter"),
+        role: "border_router",
+        status: "online",
+        icon: "mdi:router-wireless",
+        radius: 14,
+        x: 0,
+        y: 0,
+        fixed: false,
+        children: 0,
+        neighbors: (borderRouter.links || []).length,
+        area: "",
+        floor: "",
+        product: borderRouter.model_name || borderRouter.network_name || this._t("borderRouter"),
+        vendor: borderRouter.vendor_name || "",
+        network_name: borderRouter.network_name || "",
+        hostname: borderRouter.hostname || "",
+        addresses: Array.isArray(borderRouter.addresses) ? borderRouter.addresses : [],
+        ext_address: borderRouter.ext_address,
+        kind: "border_router",
       });
     }
 
@@ -309,6 +348,38 @@ class MatterSaverMeshCard extends HTMLElement {
       }
     }
 
+    for (const borderRouter of borderRouters) {
+      const source = `br:${borderRouter.ext_address}`;
+      const links = Array.isArray(borderRouter.links) ? borderRouter.links : [];
+      if (links.length === 0) {
+        linkMap.set(`${source}->ha`, {
+          source,
+          target: "ha",
+          type: "border_router",
+          rssi: null,
+          lqi: null,
+        });
+        continue;
+      }
+
+      for (const link of links) {
+        if (link?.node_id == null) continue;
+        const target = link.node_id;
+        const key = `${source}->${target}`;
+        const existing = linkMap.get(key);
+        const nextLink = {
+          source,
+          target,
+          type: "border_router",
+          rssi: link?.rssi ?? null,
+          lqi: link?.lqi ?? null,
+        };
+        if (!existing || (nextLink.rssi ?? DEDUPE_RSSI_SENTINEL) > (existing.rssi ?? DEDUPE_RSSI_SENTINEL)) {
+          linkMap.set(key, nextLink);
+        }
+      }
+    }
+
     this._links = Array.from(linkMap.values());
     this._layoutNodes();
   }
@@ -338,7 +409,7 @@ class MatterSaverMeshCard extends HTMLElement {
       homeAssistantNode.y = centerY;
     }
 
-    const routers = this._nodes.filter((node) => ["router", "leader", "reed"].includes(node.role));
+    const routers = this._nodes.filter((node) => ["router", "leader", "reed", "border_router"].includes(node.role));
     const routerRadius = Math.min(width, height) * 0.3;
     routers.forEach((router, index) => {
       if (router.fixed) return;
@@ -375,36 +446,55 @@ class MatterSaverMeshCard extends HTMLElement {
       homeAssistantNode.y = 58;
     }
 
-    const deviceNodes = this._nodes.filter((node) => node.id !== "ha");
+    const borderRouterNodes = this._nodes.filter((node) => node.kind === "border_router");
+    if (borderRouterNodes.length) {
+      const gap = width / (borderRouterNodes.length + 1);
+      borderRouterNodes.forEach((node, index) => {
+        if (!node.fixed) {
+          node.x = gap * (index + 1);
+          node.y = 118;
+          node.labelPosition = "below";
+        }
+      });
+    }
+
+    const deviceNodes = this._nodes.filter((node) => node.id !== "ha" && node.kind !== "border_router");
     if (!deviceNodes.length) {
       return;
     }
 
+    const topOffset = borderRouterNodes.length ? 156 : 104;
+
     if (this._viewMode === "by_floor") {
-      this._layoutByFloor(width, height, deviceNodes);
+      this._layoutByFloor(width, height, deviceNodes, topOffset);
       return;
     }
 
     if (this._viewMode === "by_area") {
-      this._layoutByArea(width, height, deviceNodes);
+      this._layoutByArea(width, height, deviceNodes, topOffset);
       return;
     }
 
-    this._layoutByFloorAndArea(width, height, deviceNodes);
+    this._layoutByFloorAndArea(width, height, deviceNodes, topOffset);
   }
 
-  _layoutByFloor(width, height, deviceNodes) {
+  _layoutByFloor(width, height, deviceNodes, top = 104) {
     const groupMap = this._groupNodes(deviceNodes, (node) => this._locationGroupKey("floor", node));
     const groups = this._orderedGroups([...groupMap.keys()], this._floorOrder);
-    const top = 104;
     const left = 16;
     const bottom = 16;
     const gap = 16;
     const totalHeight = Math.max(height - top - bottom, 140);
-    const bandHeight = Math.max((totalHeight - gap * Math.max(groups.length - 1, 0)) / Math.max(groups.length, 1), 96);
+    const bandHeights = this._weightedSegmentSizes(
+      totalHeight,
+      groups.map((groupName) => Math.max((groupMap.get(groupName) || []).length, 1)),
+      gap,
+      96,
+    );
 
+    let y = top;
     groups.forEach((groupName, index) => {
-      const y = top + index * (bandHeight + gap);
+      const bandHeight = bandHeights[index] ?? 96;
       const region = {
         kind: "floor",
         label: this._locationGroupLabel("floor", groupName),
@@ -415,20 +505,23 @@ class MatterSaverMeshCard extends HTMLElement {
       };
       this._regions.push(region);
       this._layoutNodesInZone(groupMap.get(groupName) || [], region, { topInset: 36, sideInset: 18, bottomInset: 18 });
+      y += bandHeight + gap;
     });
   }
 
-  _layoutByArea(width, height, deviceNodes) {
+  _layoutByArea(width, height, deviceNodes, top = 104) {
     const groupMap = this._groupNodes(deviceNodes, (node) => this._locationGroupKey("area", node));
     const groups = this._orderedGroups([...groupMap.keys()], this._areaOrder);
-    const zones = this._gridRegions(groups, width, height, "area", 104);
+    const zones = this._gridRegions(groups, width, height, "area", top, {
+      weights: Object.fromEntries(groups.map((groupName) => [groupName, Math.max((groupMap.get(groupName) || []).length, 1)])),
+    });
     zones.forEach((zone) => {
       this._regions.push({ ...zone, label: this._locationGroupLabel("area", zone.label) });
       this._layoutNodesInZone(groupMap.get(zone.label) || [], zone, { topInset: 34, sideInset: 16, bottomInset: 16 });
     });
   }
 
-  _layoutByFloorAndArea(width, height, deviceNodes) {
+  _layoutByFloorAndArea(width, height, deviceNodes, top = 104) {
     const floorMap = new Map();
     for (const node of deviceNodes) {
       const floorKey = this._locationGroupKey("floor", node);
@@ -444,15 +537,25 @@ class MatterSaverMeshCard extends HTMLElement {
     }
 
     const floors = this._orderedGroups([...floorMap.keys()], this._floorOrder);
-    const top = 104;
     const left = 16;
     const bottom = 16;
     const floorGap = 18;
     const totalHeight = Math.max(height - top - bottom, 140);
-    const floorHeight = Math.max((totalHeight - floorGap * Math.max(floors.length - 1, 0)) / Math.max(floors.length, 1), 124);
+    const floorHeights = this._weightedSegmentSizes(
+      totalHeight,
+      floors.map((floorKey) => {
+        const areaMap = floorMap.get(floorKey);
+        const nodeCount = [...areaMap.values()].reduce((sum, items) => sum + items.length, 0);
+        return Math.max(nodeCount, areaMap.size, 1);
+      }),
+      floorGap,
+      124,
+    );
 
+    let floorY = top;
     floors.forEach((floorKey, floorIndex) => {
-      const y = top + floorIndex * (floorHeight + floorGap);
+      const floorHeight = floorHeights[floorIndex] ?? 124;
+      const y = floorY;
       const floorRegion = {
         kind: "floor",
         label: this._locationGroupLabel("floor", floorKey),
@@ -474,6 +577,7 @@ class MatterSaverMeshCard extends HTMLElement {
         maxColumns: Math.min(3, Math.max(areas.length, 1)),
         minWidth: 132,
         minHeight: 96,
+        weights: Object.fromEntries(areas.map((areaKey) => [areaKey, Math.max((floorMap.get(floorKey).get(areaKey) || []).length, 1)])),
       });
 
       roomZones.forEach((zone) => {
@@ -485,16 +589,17 @@ class MatterSaverMeshCard extends HTMLElement {
         this._regions.push(roomRegion);
         this._layoutNodesInZone(floorMap.get(floorKey).get(areaKey) || [], roomRegion, { topInset: 28, sideInset: 12, bottomInset: 12 });
       });
+      floorY += floorHeight + floorGap;
     });
   }
 
-  _gridRegions(groups, width, height, kind, top) {
+  _gridRegions(groups, width, height, kind, top, options = {}) {
     return this._gridRegionsInBounds(groups, {
       x: 16,
       y: top,
       width: Math.max(width - 32, 140),
       height: Math.max(height - top - 16, 140),
-    }, kind);
+    }, kind, options);
   }
 
   _gridRegionsInBounds(groups, bounds, kind, options = {}) {
@@ -502,20 +607,81 @@ class MatterSaverMeshCard extends HTMLElement {
     const minWidth = options.minWidth ?? 120;
     const minHeight = options.minHeight ?? 100;
     const maxColumns = options.maxColumns ?? 3;
+    const weights = options.weights || {};
     const widthBasedColumns = Math.max(1, Math.floor((bounds.width + gap) / (minWidth + gap)));
     const columns = Math.max(1, Math.min(maxColumns, groups.length || 1, widthBasedColumns));
     const rows = Math.max(1, Math.ceil((groups.length || 1) / columns));
-    const cellWidth = Math.max((bounds.width - gap * Math.max(columns - 1, 0)) / columns, Math.min(minWidth, bounds.width));
-    const cellHeight = Math.max((bounds.height - gap * Math.max(rows - 1, 0)) / rows, Math.min(minHeight, bounds.height));
+    const rowGroups = Array.from({ length: rows }, (_, rowIndex) => (
+      groups.slice(rowIndex * columns, rowIndex * columns + columns)
+    ));
+    const rowHeights = this._weightedSegmentSizes(
+      bounds.height,
+      rowGroups.map((row) => row.reduce((sum, label) => sum + Math.max(weights[label] || 1, 1), 0)),
+      gap,
+      minHeight,
+    );
 
-    return groups.map((label, index) => ({
-      kind,
-      label,
-      x: bounds.x + (index % columns) * (cellWidth + gap),
-      y: bounds.y + Math.floor(index / columns) * (cellHeight + gap),
-      width: cellWidth,
-      height: cellHeight,
-    }));
+    const regions = [];
+    let y = bounds.y;
+    rowGroups.forEach((row, rowIndex) => {
+      const rowHeight = rowHeights[rowIndex] ?? minHeight;
+      const widths = this._weightedSegmentSizes(
+        bounds.width,
+        row.map((label) => Math.max(weights[label] || 1, 1)),
+        gap,
+        minWidth,
+      );
+      let x = bounds.x;
+      row.forEach((label, columnIndex) => {
+        const width = widths[columnIndex] ?? minWidth;
+        regions.push({
+          kind,
+          label,
+          x,
+          y,
+          width,
+          height: rowHeight,
+        });
+        x += width + gap;
+      });
+      y += rowHeight + gap;
+    });
+    return regions;
+  }
+
+  _weightedSegmentSizes(totalSize, weights, gap, minSize) {
+    if (!weights.length) {
+      return [];
+    }
+
+    const totalGap = gap * Math.max(weights.length - 1, 0);
+    const usableSize = Math.max(totalSize - totalGap, 0);
+    if (usableSize <= 0) {
+      return weights.map(() => 0);
+    }
+
+    const normalizedWeights = weights.map((weight) => Math.max(Number(weight) || 1, 1));
+    const minimumTotal = minSize * normalizedWeights.length;
+    if (usableSize <= minimumTotal) {
+      const evenSize = usableSize / normalizedWeights.length;
+      return normalizedWeights.map((_, index) => (
+        index === normalizedWeights.length - 1
+          ? usableSize - evenSize * (normalizedWeights.length - 1)
+          : evenSize
+      ));
+    }
+
+    const extraSize = usableSize - minimumTotal;
+    const totalWeight = normalizedWeights.reduce((sum, weight) => sum + weight, 0);
+    let consumed = 0;
+    return normalizedWeights.map((weight, index) => {
+      if (index === normalizedWeights.length - 1) {
+        return usableSize - consumed;
+      }
+      const size = minSize + (extraSize * weight) / totalWeight;
+      consumed += size;
+      return size;
+    });
   }
 
   _groupNodes(nodes, keyFn) {
@@ -683,6 +849,11 @@ class MatterSaverMeshCard extends HTMLElement {
     return [];
   }
 
+  _getBorderRouters(state) {
+    const borderRouters = state?.attributes?.border_routers;
+    return Array.isArray(borderRouters) ? borderRouters : [];
+  }
+
   _renderGraph() {
     const svg = this.querySelector("#mm-svg");
     if (!svg) return;
@@ -693,7 +864,7 @@ class MatterSaverMeshCard extends HTMLElement {
 
     const roleColors = {
       leader: "#ffb300", router: "#4caf50", reed: "#8bc34a",
-      sed: "#78909c", end_device: "#78909c", ha: "#03a9f4",
+      border_router: "#26c6da", sed: "#78909c", end_device: "#78909c", ha: "#03a9f4",
     };
 
     const nodeMap = {};
@@ -743,8 +914,21 @@ class MatterSaverMeshCard extends HTMLElement {
       group.addEventListener("mousedown", (event) => {
         if (node && node.id !== "ha" && this._viewMode === "logical") {
           this._dragging = node;
+          this._dragStartX = event.clientX;
+          this._dragStartY = event.clientY;
+          this._dragMoved = false;
           event.stopPropagation();
         }
+      });
+
+      group.addEventListener("click", () => {
+        if (!node || node.id === "ha" || this._dragMoved || node.kind !== "device") return;
+        window.dispatchEvent(new CustomEvent("matter-saver-open-device-details", {
+          detail: {
+            entityId: this._entityId,
+            nodeId: node.id,
+          },
+        }));
       });
 
       group.addEventListener("mouseenter", (event) => {
@@ -782,12 +966,19 @@ class MatterSaverMeshCard extends HTMLElement {
     nameEl.textContent = displayName;
     let detail = node.id === "ha"
       ? this._t("homeAssistant")
-      : `${this._t("node")} ${node.id} | ${this._roleLabel(node.role)}`;
+      : node.role === "border_router"
+        ? `${this._roleLabel(node.role)} | ${node.ext_address || this._t("unknown")}`
+        : `${this._t("node")} ${node.id} | ${this._roleLabel(node.role)}`;
     if (displayName !== originalName && originalName) {
       detail += `\n${this._t("name")}: ${originalName}`;
     }
     if (node.floor) detail += `\n${this._t("floor")}: ${node.floor}`;
     if (node.area) detail += `\n${this._t("area")}: ${node.area}`;
+    if (node.role === "border_router" && node.network_name) detail += `\n${node.network_name}`;
+    if (node.role === "border_router" && node.hostname) detail += `\n${node.hostname}`;
+    if (node.role === "border_router" && Array.isArray(node.addresses) && node.addresses.length) {
+      detail += `\n${node.addresses.join(", ")}`;
+    }
     if (node.product) detail += `\n${node.product}`;
     if (node.neighbors) detail += `\n${node.neighbors} ${this._t("neighbors").toLowerCase()}`;
     if (node.children) detail += `, ${node.children} ${this._t("children").toLowerCase()}`;
@@ -890,6 +1081,9 @@ class MatterSaverMeshCard extends HTMLElement {
   }
 
   _roleLabel(role) {
+    if (role === "border_router") {
+      return this._t("borderRouter");
+    }
     return role === "ha"
       ? this._t("homeAssistant")
       : this._threadRoleLabel(role);

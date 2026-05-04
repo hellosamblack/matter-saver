@@ -115,6 +115,8 @@ def _encode_device(node: dict[str, Any]) -> dict[str, Any]:
         encoded["sr"] = node["signal_rssi"]
     if node.get("signal_lqi") is not None:
         encoded["sq"] = node["signal_lqi"]
+    if node.get("device_type_ids"):
+        encoded["dt"] = node["device_type_ids"]
 
     return encoded
 
@@ -162,7 +164,7 @@ class MatterDeviceCountSensor(MatterSaverBaseSensor):
     _attr_icon = "mdi:devices"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "devices"
-    _unrecorded_attributes = frozenset({"devices"})
+    _unrecorded_attributes = frozenset({"devices", "border_routers"})
 
     def __init__(
         self, coordinator: MatterSaverCoordinator, entry: ConfigEntry
@@ -191,6 +193,7 @@ class MatterDeviceCountSensor(MatterSaverBaseSensor):
             "online": data.get("online", 0),
             "offline": data.get("offline", 0),
             "devices": [_encode_device(node) for node in nodes],
+            "border_routers": data.get("border_routers", []),
         }
 
 

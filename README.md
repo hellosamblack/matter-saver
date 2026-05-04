@@ -20,7 +20,6 @@ Home Assistant already exposes Matter devices, but Matter Saver brings the troub
 - Dedicated log, topology, and mesh cards for deeper visibility
 - Client-side English/German localization for card text, diagnostics, and activity log messages
 - Offline history and activity tracking for recurring problems
-- Built-in awareness of available Matter Saver integration updates
 
 ## Requirements
 
@@ -87,7 +86,7 @@ title: Matter Devices
 | `matter-saver-card` | Main device table with sorting, grouping, search, signal strength, route popup, tabbed device details, and visual editor support |
 | `matter-saver-log-card` | Activity log with filtering, relative timestamps, and visual editor support |
 | `matter-saver-topology-card` | Thread topology tree grouped by routers and their child devices |
-| `matter-saver-mesh-card` | Interactive Thread mesh visualization with device-type icons, logical/floor/area/dollhouse layouts, and optional room-name trimming in labels |
+| `matter-saver-mesh-card` | Interactive Thread mesh visualization with device-type icons, discovered Thread border routers, logical/floor/area/dollhouse layouts, and optional room-name trimming in labels |
 
 The visual editor exposes card-specific options such as title overrides, default sorting and filters, topology or legend visibility, log entry limits, mesh layout mode, room-name trimming, floor/area ordering, and graph height, while preserving Home Assistant's built-in `Visibility` and `Layout` controls.
 
@@ -106,7 +105,6 @@ The visual editor exposes card-specific options such as title overrides, default
 | Matter Server WebSocket API | Device availability, node attributes, and Thread diagnostics |
 | Home Assistant device registry | Friendly names and areas |
 | Home Assistant entity registry | Matter firmware update status |
-| GitHub Releases API | Integration update detection |
 | Matter cluster 40 | Basic device information |
 | Matter cluster 47 | Battery level |
 | Matter cluster 53 | Thread role, neighbors, routing, and error counters |
